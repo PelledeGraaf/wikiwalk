@@ -70,6 +70,9 @@ export function WikiMap() {
   const requestLocation = useCallback((showHelpOnDeny = false) => {
     if (!navigator.geolocation) return;
 
+    // Reset denied state — give the browser a fresh chance to prompt
+    setLocationDenied(false);
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
@@ -90,7 +93,7 @@ export function WikiMap() {
           }
         }
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
   }, []);
 
@@ -107,12 +110,14 @@ export function WikiMap() {
     if (showWelcome) setWelcomeOpen(true);
   }, [showWelcome]);
 
-  // Ask for user location on mount (works on Android/desktop, iOS needs user gesture)
+  // Ask for user location on mount — but NOT if welcome screen is showing
+  // (iOS requires a user gesture; the welcome close handler provides that)
   useEffect(() => {
     if (locationRequested) return;
+    if (welcomeOpen) return; // Wait for welcome to close — user gesture needed on iOS
     setLocationRequested(true);
     requestLocation();
-  }, [locationRequested, requestLocation]);
+  }, [locationRequested, requestLocation, welcomeOpen]);
 
   // Navigation mode: follow user position and rotate map to heading
   useEffect(() => {
@@ -251,8 +256,10 @@ export function WikiMap() {
         <WelcomeScreen
           onClose={() => {
             setWelcomeOpen(false);
-            // iOS: re-request after user gesture primed the permission
-            setTimeout(() => requestLocation(false), 300);
+            // This runs inside a user gesture (tap) — required for iOS Safari
+            // Call requestLocation directly; don't use setTimeout which loses
+            // the user-gesture context on iOS Safari.
+            requestLocation(false);
           }}
         />
       )}
@@ -383,11 +390,9 @@ export function WikiMap() {
         {!navigating && (
           <button
             onClick={() => {
-              if (locationDenied) {
-                setShowLocationHelp(true);
-              } else {
-                requestLocation(true);
-              }
+              // Always try requesting — if truly denied, requestLocation
+              // will detect PERMISSION_DENIED and show the help modal
+              requestLocation(true);
             }}
             className={`w-11 h-11 rounded-xl shadow-lg flex items-center justify-center transition-colors ${
               locationDenied

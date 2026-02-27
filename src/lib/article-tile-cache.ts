@@ -165,15 +165,35 @@ export interface Bounds {
  * Get all visible articles for the given map bounds.
  * Fetches any tiles not yet in cache, then returns the combined
  * deduplicated article list.
+ *
+ * Always includes 1 ring of surrounding tiles so markers don't
+ * vanish when the user zooms in close.
  */
 export async function getArticlesForBounds(
   bounds: Bounds,
   lang: string
 ): Promise<WikiArticle[]> {
-  const tiles = getTilesForBounds(bounds);
+  const innerTiles = getTilesForBounds(bounds);
+
+  // Expand by 1 tile ring so markers stay visible when zoomed in
+  let minRow = Infinity, maxRow = -Infinity;
+  let minCol = Infinity, maxCol = -Infinity;
+  for (const t of innerTiles) {
+    minRow = Math.min(minRow, t.row);
+    maxRow = Math.max(maxRow, t.row);
+    minCol = Math.min(minCol, t.col);
+    maxCol = Math.max(maxCol, t.col);
+  }
+
+  const allTiles: { row: number; col: number }[] = [];
+  for (let r = minRow - 1; r <= maxRow + 1; r++) {
+    for (let c = minCol - 1; c <= maxCol + 1; c++) {
+      allTiles.push({ row: r, col: c });
+    }
+  }
 
   // Separate cached from uncached
-  const uncached = tiles.filter(
+  const uncached = allTiles.filter(
     (t) => !tileCache.has(tileKey(t.row, t.col, lang))
   );
 
@@ -182,11 +202,11 @@ export async function getArticlesForBounds(
     await fetchTilesParallel(uncached, lang);
   }
 
-  // Collect all articles from visible tiles, dedup by pageid
+  // Collect all articles from tiles, dedup by pageid
   const seen = new Set<number>();
   const result: WikiArticle[] = [];
 
-  for (const t of tiles) {
+  for (const t of allTiles) {
     const cached = tileCache.get(tileKey(t.row, t.col, lang));
     if (!cached) continue;
     for (const article of cached) {
@@ -203,8 +223,9 @@ export async function getArticlesForBounds(
 }
 
 /**
- * Pre-load tiles surrounding the viewport (1 tile ring around the edges).
+ * Pre-load tiles surrounding the viewport (2 tile ring around the edges).
  * This runs in the background and doesn't block the UI.
+ * Since getArticlesForBounds already fetches 1 ring, this adds an extra buffer.
  */
 export function preloadSurroundingTiles(bounds: Bounds, lang: string): void {
   const innerTiles = getTilesForBounds(bounds);
@@ -220,13 +241,11 @@ export function preloadSurroundingTiles(bounds: Bounds, lang: string): void {
     maxCol = Math.max(maxCol, t.col);
   }
 
-  // Expand by 1 tile in each direction
+  // Expand by 2 tiles in each direction (1 ring is already fetched by getArticlesForBounds)
   const expandedTiles: { row: number; col: number }[] = [];
-  for (let r = minRow - 1; r <= maxRow + 1; r++) {
-    for (let c = minCol - 1; c <= maxCol + 1; c++) {
-      // Skip tiles that are already in the inner set
-      const isInner = r >= minRow && r <= maxRow && c >= minCol && c <= maxCol;
-      if (!isInner && !tileCache.has(tileKey(r, c, lang))) {
+  for (let r = minRow - 2; r <= maxRow + 2; r++) {
+    for (let c = minCol - 2; c <= maxCol + 2; c++) {
+      if (!tileCache.has(tileKey(r, c, lang))) {
         expandedTiles.push({ row: r, col: c });
       }
     }
