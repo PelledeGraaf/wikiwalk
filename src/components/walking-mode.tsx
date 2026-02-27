@@ -15,11 +15,17 @@ import {
   Clock,
   Route,
   GripVertical,
+  Play,
+  Square,
+  Locate,
 } from "lucide-react";
 
 interface WalkingModeProps {
   articles: WikiArticle[];
   userLocation: { lat: number; lon: number } | null;
+  navigating: boolean;
+  onStartNavigation: () => void;
+  onStopNavigation: () => void;
   onRemoveArticle: (pageid: number) => void;
   onClear: () => void;
   onFlyTo: (lat: number, lon: number, zoom?: number) => void;
@@ -28,6 +34,9 @@ interface WalkingModeProps {
 export function WalkingMode({
   articles,
   userLocation,
+  navigating,
+  onStartNavigation,
+  onStopNavigation,
   onRemoveArticle,
   onClear,
   onFlyTo,
@@ -117,18 +126,36 @@ export function WalkingMode({
         )}
       </div>
 
-      {/* Optimize route button */}
-      {articles.length >= 3 && userLocation && (
-        <div className="border-t p-3">
-          <button
-            onClick={() => {
-              // This would reorder using nearest-neighbor
-              // For now it's a placeholder
-            }}
-            className="w-full text-xs bg-orange-50 text-orange-700 px-3 py-2 rounded-lg hover:bg-orange-100 transition-colors font-medium"
-          >
-            🔀 Optimaliseer route
-          </button>
+      {/* Navigation controls */}
+      {articles.length >= 1 && (
+        <div className="border-t p-3 space-y-2">
+          {navigating ? (
+            <button
+              onClick={onStopNavigation}
+              className="w-full flex items-center justify-center gap-2 bg-red-500 text-white px-4 py-2.5 rounded-xl hover:bg-red-600 transition-colors font-medium text-sm"
+            >
+              <Square className="w-4 h-4" />
+              Stop navigatie
+            </button>
+          ) : (
+            <button
+              onClick={onStartNavigation}
+              className="w-full flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-2.5 rounded-xl hover:bg-blue-600 transition-colors font-medium text-sm"
+            >
+              <Navigation className="w-4 h-4" />
+              Start navigatie
+            </button>
+          )}
+          {articles.length >= 3 && !navigating && (
+            <button
+              onClick={() => {
+                // Placeholder for route optimization
+              }}
+              className="w-full text-xs bg-orange-50 text-orange-700 px-3 py-2 rounded-lg hover:bg-orange-100 transition-colors font-medium"
+            >
+              🔀 Optimaliseer route
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -12,6 +12,7 @@ import Map, {
   type ViewStateChangeEvent,
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+import type maplibregl from "maplibre-gl";
 import { useQuery } from "@tanstack/react-query";
 import { fetchNearbyArticles, type WikiArticle } from "@/lib/wikipedia";
 import { MapViewState, DEFAULT_VIEW } from "@/lib/constants";
@@ -28,6 +29,8 @@ import {
   Navigation,
   Compass,
 } from "lucide-react";
+import { useNavigation } from "@/hooks/use-navigation";
+import { UserLocationMarker } from "./user-location-marker";
 
 const MAP_STYLE =
   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
@@ -50,6 +53,9 @@ export function WikiMap() {
     lon: number;
   } | null>(null);
   const [locationRequested, setLocationRequested] = useState(false);
+  const [navigating, setNavigating] = useState(false);
+  const navigationState = useNavigation(navigating);
+  const lastCameraUpdateRef = useRef<number>(0);
 
   // Ask for user location on mount and fly to it
   useEffect(() => {
@@ -75,6 +81,53 @@ export function WikiMap() {
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }, [locationRequested]);
+
+  // Navigation mode: follow user position and rotate map to heading
+  useEffect(() => {
+    if (!navigating || !navigationState || !mapRef.current) return;
+
+    // Update user location for other components
+    setUserLocation({
+      lat: navigationState.latitude,
+      lon: navigationState.longitude,
+    });
+
+    // Throttle camera updates to avoid jitter (max every 500ms)
+    const now = Date.now();
+    if (now - lastCameraUpdateRef.current < 500) return;
+    lastCameraUpdateRef.current = now;
+
+    const map = mapRef.current.getMap();
+    const options: Record<string, unknown> = {
+      center: [navigationState.longitude, navigationState.latitude],
+      zoom: 17,
+      duration: 800,
+      essential: true,
+    };
+
+    if (navigationState.heading !== null) {
+      options.bearing = navigationState.heading;
+      options.pitch = 50;
+    }
+
+    map.easeTo(options as maplibregl.EaseToOptions);
+  }, [navigating, navigationState]);
+
+  // When starting navigation, also enable walking mode
+  const startNavigation = useCallback(() => {
+    if (!walkingMode) setWalkingMode(true);
+    setNavigating(true);
+  }, [walkingMode]);
+
+  const stopNavigation = useCallback(() => {
+    setNavigating(false);
+    // Reset pitch and bearing
+    mapRef.current?.getMap().easeTo({
+      pitch: 0,
+      bearing: 0,
+      duration: 500,
+    });
+  }, []);
 
   const { data: articles = [], isLoading } = useQuery({
     queryKey: [
@@ -213,12 +266,18 @@ export function WikiMap() {
         <WalkingMode
           articles={walkingArticles}
           userLocation={userLocation}
+          navigating={navigating}
+          onStartNavigation={startNavigation}
+          onStopNavigation={stopNavigation}
           onRemoveArticle={(pageid) =>
             setWalkingArticles((prev) =>
               prev.filter((a) => a.pageid !== pageid)
             )
           }
-          onClear={() => setWalkingArticles([])}
+          onClear={() => {
+            setWalkingArticles([]);
+            if (navigating) stopNavigation();
+          }}
           onFlyTo={flyToLocation}
         />
       )}
@@ -263,16 +322,32 @@ export function WikiMap() {
         minZoom={3}
       >
         <NavigationControl position="bottom-right" />
-        <GeolocateControl
-          position="bottom-right"
-          trackUserLocation
-          onGeolocate={(e) =>
-            setUserLocation({
-              lat: e.coords.latitude,
-              lon: e.coords.longitude,
-            })
-          }
-        />
+        {!navigating && (
+          <GeolocateControl
+            position="bottom-right"
+            trackUserLocation
+            onGeolocate={(e) =>
+              setUserLocation({
+                lat: e.coords.latitude,
+                lon: e.coords.longitude,
+              })
+            }
+          />
+        )}
+
+        {/* User location marker during navigation */}
+        {navigating && navigationState && (
+          <Marker
+            latitude={navigationState.latitude}
+            longitude={navigationState.longitude}
+            anchor="center"
+          >
+            <UserLocationMarker
+              heading={navigationState.heading}
+              accuracy={navigationState.accuracy}
+            />
+          </Marker>
+        )}
 
         {/* Article markers */}
         {articles.map((article) => {
