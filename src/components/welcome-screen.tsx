@@ -24,6 +24,10 @@ export function WelcomeScreen({ onClose }: { onClose: () => void }) {
         localStorage.setItem(STORAGE_KEY, "true");
       } catch {}
     }
+    // Request location on close — this is a user gesture so iOS Safari allows it
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(() => {}, () => {}, { enableHighAccuracy: true });
+    }
     onClose();
   };
 

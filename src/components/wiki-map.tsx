@@ -29,6 +29,7 @@ import {
   Navigation,
   Compass,
   Coffee,
+  LocateFixed,
 } from "lucide-react";
 import { useNavigation } from "@/hooks/use-navigation";
 import { UserLocationMarker } from "./user-location-marker";
@@ -62,24 +63,8 @@ export function WikiMap() {
   const navigationState = useNavigation(navigating);
   const lastCameraUpdateRef = useRef<number>(0);
 
-  // Detect mobile
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 640);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-
-  // Show welcome screen
-  useEffect(() => {
-    if (showWelcome) setWelcomeOpen(true);
-  }, [showWelcome]);
-
-  // Ask for user location on mount and fly to it
-  useEffect(() => {
-    if (locationRequested) return;
-    setLocationRequested(true);
-
+  // Request geolocation — called from user gesture (welcome close, or locate button)
+  const requestLocation = useCallback(() => {
     if (!navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
@@ -94,11 +79,31 @@ export function WikiMap() {
         });
       },
       () => {
-        // Permission denied or error — stay on default view (Amsterdam)
+        // Permission denied or error — stay on default view
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
-  }, [locationRequested]);
+  }, []);
+
+  // Detect mobile
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Show welcome screen
+  useEffect(() => {
+    if (showWelcome) setWelcomeOpen(true);
+  }, [showWelcome]);
+
+  // Ask for user location on mount (works on Android/desktop, iOS needs user gesture)
+  useEffect(() => {
+    if (locationRequested) return;
+    setLocationRequested(true);
+    requestLocation();
+  }, [locationRequested, requestLocation]);
 
   // Navigation mode: follow user position and rotate map to heading
   useEffect(() => {
@@ -133,9 +138,8 @@ export function WikiMap() {
 
   // When starting navigation, also enable walking mode
   const startNavigation = useCallback(() => {
-    if (!walkingMode) setWalkingMode(true);
     setNavigating(true);
-  }, [walkingMode]);
+  }, []);
 
   const stopNavigation = useCallback(() => {
     setNavigating(false);
@@ -234,7 +238,15 @@ export function WikiMap() {
   return (
     <div className="relative w-full h-screen">
       {/* Welcome screen */}
-      {welcomeOpen && <WelcomeScreen onClose={() => setWelcomeOpen(false)} />}
+      {welcomeOpen && (
+        <WelcomeScreen
+          onClose={() => {
+            setWelcomeOpen(false);
+            // iOS: re-request after user gesture primed the permission
+            setTimeout(() => requestLocation(), 300);
+          }}
+        />
+      )}
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none safe-top">
@@ -350,6 +362,39 @@ export function WikiMap() {
           Zoom in om Wikipedia artikelen te zien
         </div>
       )}
+
+      {/* Floating tracking button — always visible */}
+      <div className="absolute bottom-28 right-3 z-10 flex flex-col gap-2 safe-bottom">
+        {/* Locate me */}
+        {!navigating && (
+          <button
+            onClick={requestLocation}
+            className="w-11 h-11 bg-white rounded-xl shadow-lg flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+            title="Mijn locatie"
+          >
+            <LocateFixed className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Track mode (Google Maps-like) */}
+        <button
+          onClick={() => {
+            if (navigating) {
+              stopNavigation();
+            } else {
+              startNavigation();
+            }
+          }}
+          className={`w-11 h-11 rounded-xl shadow-lg flex items-center justify-center transition-colors ${
+            navigating
+              ? "bg-blue-500 text-white active:bg-blue-600"
+              : "bg-white text-blue-500 active:bg-blue-50 sm:hover:bg-blue-50"
+          }`}
+          title={navigating ? "Stop tracking" : "Volg mijn locatie"}
+        >
+          <Navigation className={`w-5 h-5 ${navigating ? "animate-pulse" : ""}`} />
+        </button>
+      </div>
 
       {/* Map */}
       <Map
