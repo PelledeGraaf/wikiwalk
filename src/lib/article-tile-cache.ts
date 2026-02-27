@@ -16,8 +16,8 @@ import type { WikiArticle } from "./wikipedia";
 // Tile size in degrees (≈5.5 km at equator, smaller at higher latitudes)
 const TILE_SIZE_DEG = 0.05;
 
-// Limit per geosearch call
-const LIMIT_PER_TILE = 50;
+// Limit per geosearch call (API max = 500; use max to avoid missing articles at tile edges)
+const LIMIT_PER_TILE = 500;
 
 // Max concurrent fetches
 const MAX_CONCURRENT = 8;
