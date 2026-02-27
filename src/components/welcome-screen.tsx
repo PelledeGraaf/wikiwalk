@@ -25,8 +25,13 @@ export function WelcomeScreen({ onClose }: { onClose: () => void }) {
       } catch {}
     }
     // Request location on close — this is a user gesture so iOS Safari allows it
+    // The actual result handling happens in wiki-map.tsx via the delayed requestLocation() call
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(() => {}, () => {}, { enableHighAccuracy: true });
+      navigator.geolocation.getCurrentPosition(
+        () => {},
+        () => {},
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
     }
     onClose();
   };

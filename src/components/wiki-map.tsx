@@ -34,6 +34,7 @@ import {
 import { useNavigation } from "@/hooks/use-navigation";
 import { UserLocationMarker } from "./user-location-marker";
 import { WelcomeScreen, useShowWelcome } from "./welcome-screen";
+import { LocationHelp } from "./location-help";
 
 const MAP_STYLE =
   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
@@ -59,18 +60,21 @@ export function WikiMap() {
     lon: number;
   } | null>(null);
   const [locationRequested, setLocationRequested] = useState(false);
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [showLocationHelp, setShowLocationHelp] = useState(false);
   const [navigating, setNavigating] = useState(false);
   const navigationState = useNavigation(navigating);
   const lastCameraUpdateRef = useRef<number>(0);
 
   // Request geolocation — called from user gesture (welcome close, or locate button)
-  const requestLocation = useCallback(() => {
+  const requestLocation = useCallback((showHelpOnDeny = false) => {
     if (!navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         setUserLocation({ lat: latitude, lon: longitude });
+        setLocationDenied(false);
         setViewState({ latitude, longitude, zoom: 14 });
         mapRef.current?.flyTo({
           center: [longitude, latitude],
@@ -78,8 +82,13 @@ export function WikiMap() {
           duration: 1500,
         });
       },
-      () => {
-        // Permission denied or error — stay on default view
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          setLocationDenied(true);
+          if (showHelpOnDeny) {
+            setShowLocationHelp(true);
+          }
+        }
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -138,8 +147,12 @@ export function WikiMap() {
 
   // When starting navigation, also enable walking mode
   const startNavigation = useCallback(() => {
+    if (locationDenied) {
+      setShowLocationHelp(true);
+      return;
+    }
     setNavigating(true);
-  }, []);
+  }, [locationDenied]);
 
   const stopNavigation = useCallback(() => {
     setNavigating(false);
@@ -243,9 +256,14 @@ export function WikiMap() {
           onClose={() => {
             setWelcomeOpen(false);
             // iOS: re-request after user gesture primed the permission
-            setTimeout(() => requestLocation(), 300);
+            setTimeout(() => requestLocation(false), 300);
           }}
         />
+      )}
+
+      {/* Location help modal */}
+      {showLocationHelp && (
+        <LocationHelp onClose={() => setShowLocationHelp(false)} />
       )}
 
       {/* Top bar */}
@@ -368,8 +386,18 @@ export function WikiMap() {
         {/* Locate me */}
         {!navigating && (
           <button
-            onClick={requestLocation}
-            className="w-11 h-11 bg-white rounded-xl shadow-lg flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+            onClick={() => {
+              if (locationDenied) {
+                setShowLocationHelp(true);
+              } else {
+                requestLocation(true);
+              }
+            }}
+            className={`w-11 h-11 rounded-xl shadow-lg flex items-center justify-center transition-colors ${
+              locationDenied
+                ? "bg-red-50 text-red-500 active:bg-red-100"
+                : "bg-white text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50"
+            }`}
             title="Mijn locatie"
           >
             <LocateFixed className="w-5 h-5" />
