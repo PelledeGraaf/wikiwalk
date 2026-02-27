@@ -1,0 +1,124 @@
+"use client";
+
+import { WikiArticle } from "@/lib/wikipedia";
+import { X, ExternalLink, Plus, Check, MapPin } from "lucide-react";
+import { formatDistance, haversineDistance } from "@/lib/geo";
+
+interface ArticlePanelProps {
+  article: WikiArticle;
+  language: string;
+  walkingMode: boolean;
+  isInRoute: boolean;
+  onClose: () => void;
+  onToggleRoute: () => void;
+}
+
+export function ArticlePanel({
+  article,
+  language,
+  walkingMode,
+  isInRoute,
+  onClose,
+  onToggleRoute,
+}: ArticlePanelProps) {
+  return (
+    <div className="absolute top-0 right-0 bottom-0 w-full sm:w-96 z-20 bg-white shadow-2xl overflow-y-auto">
+      {/* Header image */}
+      {article.thumbnail && (
+        <div className="relative w-full h-48">
+          <img
+            src={article.thumbnail}
+            alt={article.title}
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 w-8 h-8 bg-black/40 backdrop-blur-sm text-white rounded-full flex items-center justify-center hover:bg-black/60 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div className="absolute bottom-3 left-4 right-4">
+            <h2 className="text-xl font-bold text-white leading-tight">
+              {article.title}
+            </h2>
+          </div>
+        </div>
+      )}
+
+      {!article.thumbnail && (
+        <div className="flex items-center justify-between p-4 border-b">
+          <h2 className="text-xl font-bold text-gray-900">{article.title}</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center hover:bg-gray-200 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="p-4 space-y-4">
+        {/* Description */}
+        {article.description && (
+          <p className="text-sm text-emerald-700 font-medium bg-emerald-50 px-3 py-2 rounded-lg">
+            {article.description}
+          </p>
+        )}
+
+        {/* Coordinates */}
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <MapPin className="w-3 h-3" />
+          <span>
+            {article.lat.toFixed(5)}, {article.lon.toFixed(5)}
+          </span>
+        </div>
+
+        {/* Extract */}
+        {article.extract && (
+          <p className="text-sm text-gray-700 leading-relaxed">
+            {article.extract}
+          </p>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-col gap-2 pt-2">
+          {article.url && (
+            <a
+              href={article.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl hover:bg-emerald-700 transition-colors font-medium text-sm"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Lees op Wikipedia
+            </a>
+          )}
+
+          {walkingMode && (
+            <button
+              onClick={onToggleRoute}
+              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-colors ${
+                isInRoute
+                  ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              {isInRoute ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Verwijder uit route
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4" />
+                  Voeg toe aan route
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
