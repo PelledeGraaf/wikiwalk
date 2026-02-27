@@ -45,7 +45,7 @@ export function WalkingMode({
   const walkTime = estimateWalkingTime(distance);
 
   return (
-    <div className="absolute top-20 left-4 z-10 w-80 bg-white rounded-2xl shadow-xl overflow-hidden max-h-[calc(100vh-120px)] flex flex-col">
+    <div className="absolute bottom-0 left-0 right-0 z-10 sm:bottom-auto sm:top-20 sm:left-4 sm:right-auto sm:w-80 bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden max-h-[50dvh] sm:max-h-[calc(100vh-120px)] flex flex-col safe-bottom">
       {/* Header */}
       <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-3">
         <div className="flex items-center justify-between">
@@ -116,7 +116,7 @@ export function WalkingMode({
                 </button>
                 <button
                   onClick={() => onRemoveArticle(article.pageid)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all"
+                  className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-gray-400 hover:text-red-500 active:text-red-500 transition-all p-1"
                 >
                   <X className="w-4 h-4" />
                 </button>

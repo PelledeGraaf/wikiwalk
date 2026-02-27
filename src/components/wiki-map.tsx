@@ -48,6 +48,7 @@ export function WikiMap() {
   const [walkingArticles, setWalkingArticles] = useState<WikiArticle[]>([]);
   const [language, setLanguage] = useState<"nl" | "en">("nl");
   const [panelArticle, setPanelArticle] = useState<WikiArticle | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const [userLocation, setUserLocation] = useState<{
     lat: number;
     lon: number;
@@ -56,6 +57,14 @@ export function WikiMap() {
   const [navigating, setNavigating] = useState(false);
   const navigationState = useNavigation(navigating);
   const lastCameraUpdateRef = useRef<number>(0);
+
+  // Detect mobile
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // Ask for user location on mount and fly to it
   useEffect(() => {
@@ -168,14 +177,19 @@ export function WikiMap() {
 
   const handleMarkerClick = useCallback(
     (article: WikiArticle) => {
-      setSelectedArticle(article);
+      if (isMobile) {
+        // On mobile, skip popup and open panel directly
+        setPanelArticle(article);
+      } else {
+        setSelectedArticle(article);
+      }
       mapRef.current?.flyTo({
         center: [article.lon, article.lat],
         zoom: Math.max(viewState.zoom, 15),
         duration: 800,
       });
     },
-    [viewState.zoom]
+    [viewState.zoom, isMobile]
   );
 
   const flyToLocation = useCallback((lat: number, lon: number, zoom = 15) => {
@@ -211,18 +225,48 @@ export function WikiMap() {
   return (
     <div className="relative w-full h-screen">
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none">
-        <div className="flex items-start gap-3 p-4">
+      <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none safe-top">
+        <div className="flex flex-wrap items-center gap-2 p-3 sm:p-4 sm:flex-nowrap sm:items-start sm:gap-3">
           {/* Logo */}
-          <div className="pointer-events-auto bg-white rounded-xl shadow-lg px-4 py-2.5 flex items-center gap-2">
-            <Compass className="w-5 h-5 text-emerald-600" />
-            <span className="font-bold text-lg tracking-tight text-gray-900">
+          <div className="pointer-events-auto bg-white rounded-xl shadow-lg px-3 py-2 sm:px-4 sm:py-2.5 flex items-center gap-1.5">
+            <Compass className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
+            <span className="font-bold text-base sm:text-lg tracking-tight text-gray-900">
               Wiki<span className="text-emerald-600">Walk</span>
             </span>
           </div>
 
-          {/* Search */}
-          <div className="pointer-events-auto flex-1 max-w-lg">
+          {/* Controls — sit next to logo on mobile */}
+          <div className="pointer-events-auto flex items-center gap-1.5 sm:order-last sm:gap-2">
+            {/* Language toggle */}
+            <button
+              onClick={() => setLanguage(language === "nl" ? "en" : "nl")}
+              className="bg-white rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 text-sm font-medium text-gray-700 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+            >
+              {language === "nl" ? "🇳🇱" : "🇬🇧"}
+            </button>
+
+            {/* Walking mode toggle */}
+            <button
+              onClick={() => {
+                setWalkingMode(!walkingMode);
+                if (walkingMode) {
+                  setWalkingArticles([]);
+                  if (navigating) stopNavigation();
+                }
+              }}
+              className={`rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                walkingMode
+                  ? "bg-emerald-600 text-white active:bg-emerald-700"
+                  : "bg-white text-gray-700 active:bg-gray-100"
+              }`}
+            >
+              <Footprints className="w-4 h-4" />
+              <span className="hidden sm:inline">Walking Mode</span>
+            </button>
+          </div>
+
+          {/* Search — full width row on mobile */}
+          <div className="pointer-events-auto w-full sm:flex-1 sm:max-w-lg sm:w-auto order-last sm:order-none">
             <SearchBar
               language={language}
               onSelectResult={(article) => {
@@ -230,33 +274,6 @@ export function WikiMap() {
                 setPanelArticle(article);
               }}
             />
-          </div>
-
-          {/* Controls */}
-          <div className="pointer-events-auto flex items-center gap-2">
-            {/* Language toggle */}
-            <button
-              onClick={() => setLanguage(language === "nl" ? "en" : "nl")}
-              className="bg-white rounded-xl shadow-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              {language === "nl" ? "🇳🇱 NL" : "🇬🇧 EN"}
-            </button>
-
-            {/* Walking mode toggle */}
-            <button
-              onClick={() => {
-                setWalkingMode(!walkingMode);
-                if (walkingMode) setWalkingArticles([]);
-              }}
-              className={`rounded-xl shadow-lg px-3 py-2.5 flex items-center gap-2 text-sm font-medium transition-colors ${
-                walkingMode
-                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                  : "bg-white text-gray-700 hover:bg-gray-50"
-              }`}
-            >
-              <Footprints className="w-4 h-4" />
-              <span className="hidden sm:inline">Walking Mode</span>
-            </button>
           </div>
         </div>
       </div>
@@ -375,12 +392,14 @@ export function WikiMap() {
                 onMouseEnter={() => setHoveredArticle(article)}
                 onMouseLeave={() => setHoveredArticle(null)}
               >
+                {/* Invisible touch target for mobile */}
+                <div className="absolute -inset-3 sm:hidden" />
                 <div
-                  className={`w-3 h-3 rounded-full border-2 shadow-md ${
+                  className={`w-3.5 h-3.5 sm:w-3 sm:h-3 rounded-full border-2 shadow-md ${
                     isInRoute
-                      ? "bg-orange-500 border-orange-300 w-4 h-4"
+                      ? "bg-orange-500 border-orange-300 !w-4.5 !h-4.5 sm:!w-4 sm:!h-4"
                       : isSelected
-                      ? "bg-emerald-600 border-emerald-300 w-4 h-4"
+                      ? "bg-emerald-600 border-emerald-300 !w-4.5 !h-4.5 sm:!w-4 sm:!h-4"
                       : "bg-emerald-500 border-white"
                   }`}
                 />
@@ -423,8 +442,8 @@ export function WikiMap() {
             </Marker>
           ))}
 
-        {/* Popup on click */}
-        {selectedArticle && (
+        {/* Popup on click — desktop only */}
+        {selectedArticle && !isMobile && (
           <Popup
             latitude={selectedArticle.lat}
             longitude={selectedArticle.lon}

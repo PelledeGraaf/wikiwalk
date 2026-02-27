@@ -18,6 +18,18 @@ export const metadata: Metadata = {
       "Verken Wikipedia artikelen op een interactieve kaart. Ontdek gebouwen, monumenten, natuur en meer in je omgeving.",
     type: "website",
   },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+    "mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover" as const,
 };
 
 export default function RootLayout({

@@ -44,17 +44,17 @@ export function ArticleCard({
         <div className="flex items-center gap-2 pt-1">
           <button
             onClick={onReadMore}
-            className="flex-1 text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+            className="flex-1 text-xs bg-emerald-600 text-white px-3 py-2 rounded-lg active:bg-emerald-700 sm:hover:bg-emerald-700 transition-colors font-medium"
           >
             Lees meer
           </button>
           {walkingMode && (
             <button
               onClick={onToggleRoute}
-              className={`text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors ${
+              className={`text-xs px-3 py-2 rounded-lg font-medium flex items-center gap-1 transition-colors ${
                 isInRoute
-                  ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  ? "bg-orange-100 text-orange-700 active:bg-orange-200"
+                  : "bg-gray-100 text-gray-600 active:bg-gray-200"
               }`}
             >
               {isInRoute ? (
