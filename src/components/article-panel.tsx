@@ -1,15 +1,16 @@
 "use client";
 
 import { WikiArticle } from "@/lib/wikipedia";
-import { X, ExternalLink, Plus, Check, MapPin, ChevronDown } from "lucide-react";
+import { X, ExternalLink, Plus, Check, MapPin, Navigation, Clock, Tag } from "lucide-react";
 import { formatDistance, haversineDistance } from "@/lib/geo";
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 
 interface ArticlePanelProps {
   article: WikiArticle;
   language: string;
   walkingMode: boolean;
   isInRoute: boolean;
+  userLocation: { lat: number; lon: number } | null;
   onClose: () => void;
   onToggleRoute: () => void;
 }
@@ -19,12 +20,52 @@ export function ArticlePanel({
   language,
   walkingMode,
   isInRoute,
+  userLocation,
   onClose,
   onToggleRoute,
 }: ArticlePanelProps) {
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartRef = useRef<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+
+  // Fetch categories for this article
+  useEffect(() => {
+    setCategories([]);
+    const apiBase = language === "nl"
+      ? "https://nl.wikipedia.org/w/api.php"
+      : "https://en.wikipedia.org/w/api.php";
+
+    const params = new URLSearchParams({
+      action: "query",
+      pageids: String(article.pageid),
+      prop: "categories",
+      cllimit: "10",
+      clshow: "!hidden",
+      format: "json",
+      origin: "*",
+    });
+
+    fetch(`${apiBase}?${params}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const page = data.query?.pages?.[String(article.pageid)];
+        if (page?.categories) {
+          const cats = page.categories
+            .map((c: { title: string }) => c.title.replace(/^Categorie:|^Category:/, ""))
+            .slice(0, 5);
+          setCategories(cats);
+        }
+      })
+      .catch(() => {});
+  }, [article.pageid, language]);
+
+  // Calculate distance from user
+  const distanceText = userLocation
+    ? formatDistance(
+        haversineDistance(userLocation.lat, userLocation.lon, article.lat, article.lon)
+      )
+    : null;
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     // Only enable drag from the handle area (top 40px)
@@ -120,12 +161,20 @@ export function ArticlePanel({
               </p>
             )}
 
-            {/* Coordinates */}
-            <div className="flex items-center gap-2 text-xs text-gray-400">
-              <MapPin className="w-3 h-3" />
-              <span>
-                {article.lat.toFixed(5)}, {article.lon.toFixed(5)}
-              </span>
+            {/* Distance + Coordinates row */}
+            <div className="flex items-center gap-4 text-xs text-gray-400">
+              {distanceText && (
+                <div className="flex items-center gap-1.5 text-blue-600 font-medium bg-blue-50 px-2.5 py-1.5 rounded-lg">
+                  <Navigation className="w-3 h-3" />
+                  <span>{distanceText}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <MapPin className="w-3 h-3" />
+                <span>
+                  {article.lat.toFixed(5)}, {article.lon.toFixed(5)}
+                </span>
+              </div>
             </div>
 
             {/* Extract */}
@@ -133,6 +182,26 @@ export function ArticlePanel({
               <p className="text-sm text-gray-700 leading-relaxed">
                 {article.extract}
               </p>
+            )}
+
+            {/* Categories */}
+            {categories.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                  <Tag className="w-3 h-3" />
+                  <span>Categorieën</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {categories.map((cat) => (
+                    <span
+                      key={cat}
+                      className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md"
+                    >
+                      {cat}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Actions */}
@@ -148,6 +217,17 @@ export function ArticlePanel({
                   Lees op Wikipedia
                 </a>
               )}
+
+              {/* Google Maps directions link */}
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${article.lat},${article.lon}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 bg-blue-50 text-blue-700 px-4 py-3 sm:py-2.5 rounded-xl active:bg-blue-100 sm:hover:bg-blue-100 transition-colors font-medium text-sm"
+              >
+                <Navigation className="w-4 h-4" />
+                Navigeer hierheen
+              </a>
 
               {walkingMode && (
                 <button

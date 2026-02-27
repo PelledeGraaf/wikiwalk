@@ -65,6 +65,8 @@ export function WikiMap() {
   const [navigating, setNavigating] = useState(false);
   const navigationState = useNavigation(navigating);
   const lastCameraUpdateRef = useRef<number>(0);
+  const [viewedArticles, setViewedArticles] = useState<Set<number>>(new Set());
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   // Request geolocation — called from user gesture (welcome close, or locate button)
   const requestLocation = useCallback((showHelpOnDeny = false) => {
@@ -189,18 +191,41 @@ export function WikiMap() {
     [onMapMove]
   );
 
+  // Mark initial load as done once we get articles (or loading finishes)
+  useEffect(() => {
+    if (!initialLoadDone && !isLoading && articles.length > 0) {
+      setInitialLoadDone(true);
+    }
+  }, [articles.length, isLoading, initialLoadDone]);
+
+  // Also mark done after a timeout (in case there are no articles in the area)
+  useEffect(() => {
+    const t = setTimeout(() => setInitialLoadDone(true), 5000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const markViewed = useCallback((pageid: number) => {
+    setViewedArticles((prev) => {
+      const next = new Set(prev);
+      next.add(pageid);
+      return next;
+    });
+  }, []);
+
   const handleArticleClick = useCallback(
     async (article: WikiArticle) => {
       setSelectedArticle(null);
+      markViewed(article.pageid);
       // Enrich article with full details before showing panel
       const enriched = await enrichArticleFn(article);
       setPanelArticle(enriched);
     },
-    [enrichArticleFn]
+    [enrichArticleFn, markViewed]
   );
 
   const handleMarkerClick = useCallback(
     async (article: WikiArticle) => {
+      markViewed(article.pageid);
       if (isMobile) {
         // On mobile, skip popup and open panel directly
         const enriched = await enrichArticleFn(article);
@@ -216,7 +241,7 @@ export function WikiMap() {
         duration: 800,
       });
     },
-    [viewState.zoom, isMobile, enrichArticleFn]
+    [viewState.zoom, isMobile, enrichArticleFn, markViewed]
   );
 
   const flyToLocation = useCallback((lat: number, lon: number, zoom = 15) => {
@@ -364,13 +389,32 @@ export function WikiMap() {
           isInRoute={walkingArticles.some(
             (a) => a.pageid === panelArticle.pageid
           )}
+          userLocation={userLocation}
           onClose={() => setPanelArticle(null)}
           onToggleRoute={() => toggleWalkingArticle(panelArticle)}
         />
       )}
 
-      {/* Loading indicator */}
-      {isLoading && (
+      {/* Initial loading screen */}
+      {!initialLoadDone && (
+        <div className="fixed inset-0 z-40 bg-gradient-to-br from-emerald-50 to-white flex flex-col items-center justify-center gap-6">
+          <div className="flex items-center gap-2.5">
+            <Compass className="w-10 h-10 text-emerald-600 animate-spin" style={{ animationDuration: '3s' }} />
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+              Wiki<span className="text-emerald-600">Walk</span>
+            </h1>
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-48 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+            </div>
+            <p className="text-sm text-gray-500">Artikelen laden...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Small loading indicator for subsequent loads */}
+      {isLoading && initialLoadDone && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur rounded-full px-4 py-2 shadow-lg text-sm text-gray-600 flex items-center gap-2">
           <div className="w-3 h-3 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
           Artikelen laden...
@@ -471,6 +515,7 @@ export function WikiMap() {
             (a) => a.pageid === article.pageid
           );
           const isHovered = hoveredArticle?.pageid === article.pageid;
+          const isViewed = viewedArticles.has(article.pageid);
 
           // Scale marker size based on zoom level
           const markerSize = viewState.zoom >= 14
@@ -513,6 +558,8 @@ export function WikiMap() {
                       ? `bg-orange-500 border-orange-300 ${markerSizeActive}`
                       : isSelected
                       ? `bg-emerald-600 border-emerald-300 ${markerSizeActive}`
+                      : isViewed
+                      ? "bg-gray-400 border-gray-200"
                       : "bg-emerald-500 border-white"
                   }`}
                 />
