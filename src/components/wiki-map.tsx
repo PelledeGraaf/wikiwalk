@@ -14,7 +14,7 @@ import Map, {
 import "maplibre-gl/dist/maplibre-gl.css";
 import type maplibregl from "maplibre-gl";
 import { useQuery } from "@tanstack/react-query";
-import { fetchNearbyArticles, type WikiArticle } from "@/lib/wikipedia";
+import { fetchNearbyArticles, fetchArticlesInBounds, type WikiArticle } from "@/lib/wikipedia";
 import { MapViewState, DEFAULT_VIEW } from "@/lib/constants";
 import { ArticleCard } from "./article-card";
 import { SearchBar } from "./search-bar";
@@ -164,28 +164,27 @@ export function WikiMap() {
     });
   }, []);
 
+  // Reduce key precision at lower zoom levels to avoid excessive refetches
+  const keyPrecision = viewState.zoom >= 12 ? 3 : viewState.zoom >= 8 ? 2 : 1;
+
   const { data: articles = [], isLoading } = useQuery({
     queryKey: [
       "nearby",
-      viewState.latitude.toFixed(3),
-      viewState.longitude.toFixed(3),
+      viewState.latitude.toFixed(keyPrecision),
+      viewState.longitude.toFixed(keyPrecision),
       viewState.zoom.toFixed(0),
       language,
     ],
     queryFn: () => {
-      const radius = Math.min(
-        10000,
-        Math.max(500, Math.round(40000 / Math.pow(2, viewState.zoom - 10)))
-      );
-      return fetchNearbyArticles(
+      return fetchArticlesInBounds(
         viewState.latitude,
         viewState.longitude,
-        radius,
-        50,
+        viewState.zoom,
         language
       );
     },
-    enabled: viewState.zoom >= 10,
+    enabled: viewState.zoom >= 5,
+    staleTime: 5 * 60 * 1000,
   });
 
   const handleMoveEnd = useCallback((e: ViewStateChangeEvent) => {
@@ -375,7 +374,7 @@ export function WikiMap() {
       )}
 
       {/* Zoom hint */}
-      {viewState.zoom < 10 && (
+      {viewState.zoom < 5 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur rounded-full px-4 py-2 shadow-lg text-sm text-gray-600">
           Zoom in om Wikipedia artikelen te zien
         </div>
@@ -470,6 +469,21 @@ export function WikiMap() {
           );
           const isHovered = hoveredArticle?.pageid === article.pageid;
 
+          // Scale marker size based on zoom level
+          const markerSize = viewState.zoom >= 14
+            ? "w-3.5 h-3.5 sm:w-3 sm:h-3"
+            : viewState.zoom >= 10
+            ? "w-2.5 h-2.5 sm:w-2 sm:h-2"
+            : "w-2 h-2 sm:w-1.5 sm:h-1.5";
+
+          const markerSizeActive = viewState.zoom >= 14
+            ? "!w-4.5 !h-4.5 sm:!w-4 sm:!h-4"
+            : viewState.zoom >= 10
+            ? "!w-3.5 !h-3.5 sm:!w-3 sm:!h-3"
+            : "!w-2.5 !h-2.5 sm:!w-2 sm:!h-2";
+
+          const borderWidth = viewState.zoom >= 12 ? "border-2" : "border";
+
           return (
             <Marker
               key={article.pageid}
@@ -491,11 +505,11 @@ export function WikiMap() {
                 {/* Invisible touch target for mobile */}
                 <div className="absolute -inset-3 sm:hidden" />
                 <div
-                  className={`w-3.5 h-3.5 sm:w-3 sm:h-3 rounded-full border-2 shadow-md ${
+                  className={`${markerSize} rounded-full ${borderWidth} shadow-md ${
                     isInRoute
-                      ? "bg-orange-500 border-orange-300 !w-4.5 !h-4.5 sm:!w-4 sm:!h-4"
+                      ? `bg-orange-500 border-orange-300 ${markerSizeActive}`
                       : isSelected
-                      ? "bg-emerald-600 border-emerald-300 !w-4.5 !h-4.5 sm:!w-4 sm:!h-4"
+                      ? `bg-emerald-600 border-emerald-300 ${markerSizeActive}`
                       : "bg-emerald-500 border-white"
                   }`}
                 />
