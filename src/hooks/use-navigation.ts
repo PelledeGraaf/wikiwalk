@@ -44,6 +44,23 @@ export function useNavigation(enabled: boolean) {
 
     if (!navigator.geolocation) return;
 
+    // First, do a getCurrentPosition to ensure we have permission
+    // (on iOS, watchPosition from a useEffect may silently fail
+    //  if permission wasn't already granted via a user gesture)
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        // Permission confirmed — now start watching
+        startWatching();
+      },
+      (error) => {
+        console.warn("Navigation permission check failed:", error);
+        // Try watching anyway (might work on non-iOS)
+        startWatching();
+      },
+      { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+    );
+
+    function startWatching() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude, heading, speed, accuracy } =
@@ -94,6 +111,7 @@ export function useNavigation(enabled: boolean) {
         timeout: 5000,
       }
     );
+    } // end startWatching
 
     // Device orientation for compass heading (works on mobile)
     const handleOrientation = (e: DeviceOrientationEvent) => {

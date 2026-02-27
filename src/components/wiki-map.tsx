@@ -5,7 +5,6 @@ import Map, {
   Marker,
   Popup,
   NavigationControl,
-  GeolocateControl,
   Source,
   Layer,
   type MapRef,
@@ -67,35 +66,89 @@ export function WikiMap() {
   const lastCameraUpdateRef = useRef<number>(0);
   const [viewedArticles, setViewedArticles] = useState<Set<number>>(new Set());
   const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const locationGrantedRef = useRef(false);
 
-  // Request geolocation — called from user gesture (welcome close, or locate button)
+  // Detect iOS
+  useEffect(() => {
+    const ios =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    setIsIOS(ios);
+  }, []);
+
+  /**
+   * Request geolocation — iOS Safari compatible.
+   *
+   * Strategy:
+   * 1. First call uses enableHighAccuracy: FALSE → WiFi/cell, responds in <2s
+   * 2. If that succeeds, immediately fire a HIGH accuracy request to refine
+   * 3. This gives instant feedback + precise location moments later
+   *
+   * iOS Safari requirements:
+   * - MUST be called from a user gesture (tap/click handler)
+   * - Never call from useEffect/setTimeout (iOS silently blocks it)
+   * - enableHighAccuracy: true can take 30s+ on iOS (GPS cold start)
+   */
   const requestLocation = useCallback((showHelpOnDeny = false) => {
     if (!navigator.geolocation) return;
 
-    // Reset denied state — give the browser a fresh chance to prompt
+    // Reset denied state — give the browser a fresh chance
     setLocationDenied(false);
 
+    const onSuccess = (position: GeolocationPosition) => {
+      const { latitude, longitude } = position.coords;
+      setUserLocation({ lat: latitude, lon: longitude });
+      setLocationDenied(false);
+      locationGrantedRef.current = true;
+      setViewState({ latitude, longitude, zoom: 14 });
+      mapRef.current?.flyTo({
+        center: [longitude, latitude],
+        zoom: 14,
+        duration: 1500,
+      });
+    };
+
+    const onError = (error: GeolocationPositionError) => {
+      if (error.code === error.PERMISSION_DENIED) {
+        setLocationDenied(true);
+        if (showHelpOnDeny) {
+          setShowLocationHelp(true);
+        }
+      }
+      // TIMEOUT or POSITION_UNAVAILABLE: don't set denied, just silently fail
+    };
+
+    // Phase 1: Quick low-accuracy position (WiFi/cell — instant on iOS)
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const { latitude, longitude } = position.coords;
-        setUserLocation({ lat: latitude, lon: longitude });
-        setLocationDenied(false);
-        setViewState({ latitude, longitude, zoom: 14 });
-        mapRef.current?.flyTo({
-          center: [longitude, latitude],
-          zoom: 14,
-          duration: 1500,
-        });
+        onSuccess(position);
+
+        // Phase 2: Refine with high accuracy in background (GPS)
+        navigator.geolocation.getCurrentPosition(
+          (refined) => {
+            // Only update if significantly more accurate
+            if (refined.coords.accuracy < position.coords.accuracy) {
+              setUserLocation({
+                lat: refined.coords.latitude,
+                lon: refined.coords.longitude,
+              });
+            }
+          },
+          () => {}, // Silently ignore — we already have a position
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
       },
       (error) => {
-        if (error.code === error.PERMISSION_DENIED) {
-          setLocationDenied(true);
-          if (showHelpOnDeny) {
-            setShowLocationHelp(true);
-          }
-        }
+        // Low-accuracy failed — try high accuracy as fallback
+        // (some devices only support high accuracy)
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          onError,
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+        );
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+      { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
     );
   }, []);
 
@@ -112,14 +165,19 @@ export function WikiMap() {
     if (showWelcome) setWelcomeOpen(true);
   }, [showWelcome]);
 
-  // Ask for user location on mount — but NOT if welcome screen is showing
-  // (iOS requires a user gesture; the welcome close handler provides that)
+  // Ask for user location on mount — but NOT on iOS (requires user gesture)
+  // and NOT if welcome screen is showing (will request on close)
   useEffect(() => {
     if (locationRequested) return;
-    if (welcomeOpen) return; // Wait for welcome to close — user gesture needed on iOS
+    if (welcomeOpen) return;
+    if (isIOS) {
+      // On iOS, never auto-request — wait for user to tap locate button
+      setLocationRequested(true);
+      return;
+    }
     setLocationRequested(true);
     requestLocation();
-  }, [locationRequested, requestLocation, welcomeOpen]);
+  }, [locationRequested, requestLocation, welcomeOpen, isIOS]);
 
   // Navigation mode: follow user position and rotate map to heading
   useEffect(() => {
@@ -485,18 +543,10 @@ export function WikiMap() {
         minZoom={3}
       >
         <NavigationControl position="bottom-right" />
-        {!navigating && (
-          <GeolocateControl
-            position="bottom-right"
-            trackUserLocation
-            onGeolocate={(e) =>
-              setUserLocation({
-                lat: e.coords.latitude,
-                lon: e.coords.longitude,
-              })
-            }
-          />
-        )}
+        {/* Note: MapLibre's GeolocateControl removed — we use our own locate
+            button that handles iOS Safari's user-gesture requirement properly.
+            The built-in control can't integrate with our locationDenied state
+            and the two-phase positioning strategy. */}
 
         {/* User location marker during navigation */}
         {navigating && navigationState && (
