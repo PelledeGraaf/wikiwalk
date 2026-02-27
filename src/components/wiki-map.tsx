@@ -28,9 +28,11 @@ import {
   X,
   Navigation,
   Compass,
+  Coffee,
 } from "lucide-react";
 import { useNavigation } from "@/hooks/use-navigation";
 import { UserLocationMarker } from "./user-location-marker";
+import { WelcomeScreen, useShowWelcome } from "./welcome-screen";
 
 const MAP_STYLE =
   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
@@ -49,6 +51,8 @@ export function WikiMap() {
   const [language, setLanguage] = useState<"nl" | "en">("nl");
   const [panelArticle, setPanelArticle] = useState<WikiArticle | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const showWelcome = useShowWelcome();
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [userLocation, setUserLocation] = useState<{
     lat: number;
     lon: number;
@@ -65,6 +69,11 @@ export function WikiMap() {
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
+
+  // Show welcome screen
+  useEffect(() => {
+    if (showWelcome) setWelcomeOpen(true);
+  }, [showWelcome]);
 
   // Ask for user location on mount and fly to it
   useEffect(() => {
@@ -224,6 +233,9 @@ export function WikiMap() {
 
   return (
     <div className="relative w-full h-screen">
+      {/* Welcome screen */}
+      {welcomeOpen && <WelcomeScreen onClose={() => setWelcomeOpen(false)} />}
+
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none safe-top">
         <div className="flex flex-wrap items-center gap-2 p-3 sm:p-4 sm:flex-nowrap sm:items-start sm:gap-3">
@@ -237,6 +249,17 @@ export function WikiMap() {
 
           {/* Controls — sit next to logo on mobile */}
           <div className="pointer-events-auto flex items-center gap-1.5 sm:order-last sm:gap-2">
+            {/* Buy me a coffee */}
+            <a
+              href="https://buymeacoffee.com/pello"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-white rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 text-amber-500 active:bg-amber-50 sm:hover:bg-amber-50 transition-colors"
+              title="Support the developer"
+            >
+              <Coffee className="w-4 h-4" />
+            </a>
+
             {/* Language toggle */}
             <button
               onClick={() => setLanguage(language === "nl" ? "en" : "nl")}
