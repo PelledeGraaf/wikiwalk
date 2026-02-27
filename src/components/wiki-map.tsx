@@ -392,6 +392,10 @@ export function WikiMap() {
           userLocation={userLocation}
           onClose={() => setPanelArticle(null)}
           onToggleRoute={() => toggleWalkingArticle(panelArticle)}
+          onNavigate={(lat, lon) => {
+            flyToLocation(lat, lon, 17);
+            setNavigating(true);
+          }}
         />
       )}
 
@@ -519,16 +523,16 @@ export function WikiMap() {
 
           // Scale marker size based on zoom level
           const markerSize = viewState.zoom >= 14
-            ? "w-3.5 h-3.5 sm:w-3 sm:h-3"
-            : viewState.zoom >= 10
             ? "w-2.5 h-2.5 sm:w-2 sm:h-2"
-            : "w-2 h-2 sm:w-1.5 sm:h-1.5";
+            : viewState.zoom >= 10
+            ? "w-2 h-2 sm:w-1.5 sm:h-1.5"
+            : "w-1.5 h-1.5 sm:w-1 sm:h-1";
 
           const markerSizeActive = viewState.zoom >= 14
-            ? "!w-4.5 !h-4.5 sm:!w-4 sm:!h-4"
+            ? "!w-3 !h-3 sm:!w-2.5 sm:!h-2.5"
             : viewState.zoom >= 10
-            ? "!w-3.5 !h-3.5 sm:!w-3 sm:!h-3"
-            : "!w-2.5 !h-2.5 sm:!w-2 sm:!h-2";
+            ? "!w-2.5 !h-2.5 sm:!w-2 sm:!h-2"
+            : "!w-2 !h-2 sm:!w-1.5 sm:!h-1.5";
 
           const borderWidth = viewState.zoom >= 12 ? "border-2" : "border";
 
@@ -551,7 +555,7 @@ export function WikiMap() {
                 onMouseLeave={() => setHoveredArticle(null)}
               >
                 {/* Invisible touch target for mobile */}
-                <div className="absolute -inset-3 sm:hidden" />
+                <div className="absolute -inset-2 sm:hidden" />
                 <div
                   className={`${markerSize} rounded-full ${borderWidth} shadow-md ${
                     isInRoute

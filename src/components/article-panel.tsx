@@ -13,6 +13,7 @@ interface ArticlePanelProps {
   userLocation: { lat: number; lon: number } | null;
   onClose: () => void;
   onToggleRoute: () => void;
+  onNavigate: (lat: number, lon: number) => void;
 }
 
 export function ArticlePanel({
@@ -23,6 +24,7 @@ export function ArticlePanel({
   userLocation,
   onClose,
   onToggleRoute,
+  onNavigate,
 }: ArticlePanelProps) {
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartRef = useRef<number | null>(null);
@@ -218,16 +220,26 @@ export function ArticlePanel({
                 </a>
               )}
 
-              {/* Google Maps directions link */}
-              <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${article.lat},${article.lon}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 bg-blue-50 text-blue-700 px-4 py-3 sm:py-2.5 rounded-xl active:bg-blue-100 sm:hover:bg-blue-100 transition-colors font-medium text-sm"
-              >
-                <Navigation className="w-4 h-4" />
-                Navigeer hierheen
-              </a>
+              {/* Navigation buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onNavigate(article.lat, article.lon)}
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-3 sm:py-2.5 rounded-xl active:bg-blue-700 sm:hover:bg-blue-700 transition-colors font-medium text-sm"
+                >
+                  <Navigation className="w-4 h-4" />
+                  Navigeer
+                </button>
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${article.lat},${article.lon}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 bg-blue-50 text-blue-700 px-3 py-3 sm:py-2.5 rounded-xl active:bg-blue-100 sm:hover:bg-blue-100 transition-colors text-sm"
+                  title="Open in Google Maps"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Maps
+                </a>
+              </div>
 
               {walkingMode && (
                 <button
