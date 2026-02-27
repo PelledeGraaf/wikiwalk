@@ -49,6 +49,32 @@ export function WikiMap() {
     lat: number;
     lon: number;
   } | null>(null);
+  const [locationRequested, setLocationRequested] = useState(false);
+
+  // Ask for user location on mount and fly to it
+  useEffect(() => {
+    if (locationRequested) return;
+    setLocationRequested(true);
+
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setUserLocation({ lat: latitude, lon: longitude });
+        setViewState({ latitude, longitude, zoom: 14 });
+        mapRef.current?.flyTo({
+          center: [longitude, latitude],
+          zoom: 14,
+          duration: 1500,
+        });
+      },
+      () => {
+        // Permission denied or error — stay on default view (Amsterdam)
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, [locationRequested]);
 
   const { data: articles = [], isLoading } = useQuery({
     queryKey: [
