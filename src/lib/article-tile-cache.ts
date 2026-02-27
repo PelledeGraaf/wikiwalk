@@ -1,12 +1,12 @@
 import type { WikiArticle } from "./wikipedia";
 
 /**
- * Tile-based article cache.
+ * Tile-based article cache with IndexedDB persistence.
  *
  * The world is divided into fixed-size tiles (~5km at the equator).
  * Each tile is fetched once via the Wikipedia geosearch API and cached
- * in memory. When the viewport changes, only new (unseen) tiles are
- * fetched. Previously loaded tiles are served from cache instantly.
+ * both in memory and in IndexedDB. On page reload, the IndexedDB cache
+ * is restored so previously visited areas load instantly.
  *
  * Pre-loading: after loading visible tiles, surrounding tiles (1 ring
  * around the viewport) are fetched in the background so panning feels
@@ -22,11 +22,140 @@ const LIMIT_PER_TILE = 500;
 // Max concurrent fetches
 const MAX_CONCURRENT = 8;
 
+// Cache expiry: tiles older than 24h are re-fetched
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 // Wikipedia API bases
 const WIKI_API: Record<string, string> = {
   nl: "https://nl.wikipedia.org/w/api.php",
   en: "https://en.wikipedia.org/w/api.php",
 };
+
+// ─── IndexedDB Persistence ──────────────────────────────────────────────
+
+const DB_NAME = "wikiwalk-cache";
+const DB_VERSION = 1;
+const TILE_STORE = "tiles";
+const ARTICLE_STORE = "articles";
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function openDB(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("IndexedDB not available"));
+      return;
+    }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(TILE_STORE)) {
+        db.createObjectStore(TILE_STORE);
+      }
+      if (!db.objectStoreNames.contains(ARTICLE_STORE)) {
+        db.createObjectStore(ARTICLE_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+interface PersistedTile {
+  articles: WikiArticle[];
+  timestamp: number;
+}
+
+async function persistTile(key: string, articles: WikiArticle[]): Promise<void> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(TILE_STORE, "readwrite");
+    const store = tx.objectStore(TILE_STORE);
+    const data: PersistedTile = { articles, timestamp: Date.now() };
+    store.put(data, key);
+  } catch {
+    // Silently fail — persistence is best-effort
+  }
+}
+
+async function loadPersistedTile(key: string): Promise<WikiArticle[] | null> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(TILE_STORE, "readonly");
+    const store = tx.objectStore(TILE_STORE);
+    return new Promise((resolve) => {
+      const req = store.get(key);
+      req.onsuccess = () => {
+        const data = req.result as PersistedTile | undefined;
+        if (!data) { resolve(null); return; }
+        // Check expiry
+        if (Date.now() - data.timestamp > CACHE_MAX_AGE_MS) {
+          resolve(null);
+          return;
+        }
+        resolve(data.articles);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function persistEnrichedArticle(key: string, article: WikiArticle): Promise<void> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(ARTICLE_STORE, "readwrite");
+    const store = tx.objectStore(ARTICLE_STORE);
+    store.put({ ...article, _ts: Date.now() }, key);
+  } catch {}
+}
+
+async function loadPersistedArticle(key: string): Promise<WikiArticle | null> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(ARTICLE_STORE, "readonly");
+    const store = tx.objectStore(ARTICLE_STORE);
+    return new Promise((resolve) => {
+      const req = store.get(key);
+      req.onsuccess = () => {
+        const data = req.result as (WikiArticle & { _ts?: number }) | undefined;
+        if (!data) { resolve(null); return; }
+        if (data._ts && Date.now() - data._ts > CACHE_MAX_AGE_MS) {
+          resolve(null);
+          return;
+        }
+        resolve(data);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function clearPersistedLanguage(lang: string): Promise<void> {
+  try {
+    const db = await openDB();
+    const prefix = `${lang}:`;
+    for (const storeName of [TILE_STORE, ARTICLE_STORE]) {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          if (typeof cursor.key === "string" && cursor.key.startsWith(prefix)) {
+            cursor.delete();
+          }
+          cursor.continue();
+        }
+      };
+    }
+  } catch {}
+}
 
 /** Simple tile key: "lang:row:col" */
 function tileKey(row: number, col: number, lang: string): string {
@@ -78,13 +207,23 @@ async function fetchTile(
 ): Promise<WikiArticle[]> {
   const key = tileKey(row, col, lang);
 
-  // Already cached
+  // Already in memory cache
   if (tileCache.has(key)) return tileCache.get(key)!;
 
   // Already in-flight
   if (inflight.has(key)) return inflight.get(key)!;
 
   const promise = (async () => {
+    // Try IndexedDB first
+    const persisted = await loadPersistedTile(key);
+    if (persisted) {
+      tileCache.set(key, persisted);
+      for (const article of persisted) {
+        articleStore.set(articleKey(article.pageid, lang), article);
+      }
+      return persisted;
+    }
+
     const { lat, lon } = tileCentre(row, col);
     const apiBase = WIKI_API[lang] || WIKI_API.nl;
 
@@ -104,6 +243,7 @@ async function fetchTile(
 
       if (!data.query?.geosearch) {
         tileCache.set(key, []);
+        persistTile(key, []);
         return [];
       }
 
@@ -117,13 +257,16 @@ async function fetchTile(
         })
       );
 
-      // Store in tile cache
+      // Store in memory
       tileCache.set(key, articles);
 
       // Store in global article store
       for (const article of articles) {
         articleStore.set(articleKey(article.pageid, lang), article);
       }
+
+      // Persist to IndexedDB (fire and forget)
+      persistTile(key, articles);
 
       return articles;
     } catch {
@@ -268,9 +411,16 @@ export async function enrichArticle(
   const key = articleKey(pageid, lang);
   const existing = articleStore.get(key);
 
-  // If we already have extract + url, return cached
+  // If we already have extract + url in memory, return cached
   if (existing?.extract && existing?.url) {
     return existing;
+  }
+
+  // Check IndexedDB for enriched version
+  const persisted = await loadPersistedArticle(key);
+  if (persisted?.extract && persisted?.url) {
+    articleStore.set(key, persisted);
+    return persisted;
   }
 
   const apiBase = WIKI_API[lang] || WIKI_API.nl;
@@ -308,6 +458,10 @@ export async function enrichArticle(
   };
 
   articleStore.set(key, enriched);
+
+  // Persist enriched article to IndexedDB
+  persistEnrichedArticle(key, enriched);
+
   return enriched;
 }
 
@@ -325,6 +479,8 @@ export function clearCacheForLanguage(lang: string): void {
       articleStore.delete(key);
     }
   }
+  // Also clear IndexedDB for this language
+  clearPersistedLanguage(lang);
 }
 
 /**
