@@ -13,8 +13,8 @@ import Map, {
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type maplibregl from "maplibre-gl";
-import { useQuery } from "@tanstack/react-query";
-import { fetchNearbyArticles, fetchArticlesInBounds, type WikiArticle } from "@/lib/wikipedia";
+import type { WikiArticle } from "@/lib/wikipedia";
+import { useTileArticles } from "@/hooks/use-tile-articles";
 import { MapViewState, DEFAULT_VIEW } from "@/lib/constants";
 import { ArticleCard } from "./article-card";
 import { SearchBar } from "./search-bar";
@@ -164,49 +164,46 @@ export function WikiMap() {
     });
   }, []);
 
-  // Reduce key precision at lower zoom levels to avoid excessive refetches
-  const keyPrecision = viewState.zoom >= 12 ? 3 : viewState.zoom >= 8 ? 2 : 1;
+  // Tile-based article loading with caching and pre-loading
+  const {
+    articles,
+    isLoading,
+    onMapMove,
+    enrichArticle: enrichArticleFn,
+  } = useTileArticles(mapRef, language, viewState.zoom);
 
-  const { data: articles = [], isLoading } = useQuery({
-    queryKey: [
-      "nearby",
-      viewState.latitude.toFixed(keyPrecision),
-      viewState.longitude.toFixed(keyPrecision),
-      viewState.zoom.toFixed(0),
-      language,
-    ],
-    queryFn: () => {
-      return fetchArticlesInBounds(
-        viewState.latitude,
-        viewState.longitude,
-        viewState.zoom,
-        language
-      );
+  const handleMoveEnd = useCallback(
+    (e: ViewStateChangeEvent) => {
+      setViewState({
+        latitude: e.viewState.latitude,
+        longitude: e.viewState.longitude,
+        zoom: e.viewState.zoom,
+      });
+      onMapMove();
     },
-    enabled: viewState.zoom >= 5,
-    staleTime: 5 * 60 * 1000,
-  });
+    [onMapMove]
+  );
 
-  const handleMoveEnd = useCallback((e: ViewStateChangeEvent) => {
-    setViewState({
-      latitude: e.viewState.latitude,
-      longitude: e.viewState.longitude,
-      zoom: e.viewState.zoom,
-    });
-  }, []);
-
-  const handleArticleClick = useCallback((article: WikiArticle) => {
-    setSelectedArticle(null);
-    setPanelArticle(article);
-  }, []);
+  const handleArticleClick = useCallback(
+    async (article: WikiArticle) => {
+      setSelectedArticle(null);
+      // Enrich article with full details before showing panel
+      const enriched = await enrichArticleFn(article);
+      setPanelArticle(enriched);
+    },
+    [enrichArticleFn]
+  );
 
   const handleMarkerClick = useCallback(
-    (article: WikiArticle) => {
+    async (article: WikiArticle) => {
       if (isMobile) {
         // On mobile, skip popup and open panel directly
-        setPanelArticle(article);
+        const enriched = await enrichArticleFn(article);
+        setPanelArticle(enriched);
       } else {
-        setSelectedArticle(article);
+        // Enrich for popup too (needs extract for preview)
+        const enriched = await enrichArticleFn(article);
+        setSelectedArticle(enriched);
       }
       mapRef.current?.flyTo({
         center: [article.lon, article.lat],
@@ -214,7 +211,7 @@ export function WikiMap() {
         duration: 800,
       });
     },
-    [viewState.zoom, isMobile]
+    [viewState.zoom, isMobile, enrichArticleFn]
   );
 
   const flyToLocation = useCallback((lat: number, lon: number, zoom = 15) => {
@@ -374,7 +371,7 @@ export function WikiMap() {
       )}
 
       {/* Zoom hint */}
-      {viewState.zoom < 5 && (
+      {viewState.zoom < 3 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur rounded-full px-4 py-2 shadow-lg text-sm text-gray-600">
           Zoom in om Wikipedia artikelen te zien
         </div>
@@ -430,6 +427,7 @@ export function WikiMap() {
         style={{ width: "100%", height: "100%" }}
         mapStyle={MAP_STYLE}
         onMoveEnd={handleMoveEnd}
+        onLoad={onMapMove}
         maxZoom={19}
         minZoom={3}
       >
