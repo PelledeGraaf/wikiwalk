@@ -67,6 +67,7 @@ export function WikiMap() {
   const [viewedArticles, setViewedArticles] = useState<Set<number>>(new Set());
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const locationGrantedRef = useRef(false);
+  const [locationLoading, setLocationLoading] = useState(false);
 
   /**
    * Detect iOS synchronously — NOT via useEffect/state.
@@ -81,126 +82,139 @@ export function WikiMap() {
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
   /**
-   * Wrapper around getCurrentPosition that ALWAYS resolves or rejects.
+   * Request geolocation — robust iOS Safari strategy.
    *
-   * iOS Safari bug: getCurrentPosition can hang forever — neither the
-   * success nor error callback fires. This wrapper adds a hard timeout
-   * so the UI is never stuck.
-   */
-  const geoGet = useCallback(
-    (options: PositionOptions, hardTimeoutMs = 10000): Promise<GeolocationPosition> => {
-      return new Promise((resolve, reject) => {
-        let settled = false;
-        const timer = setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            reject(new Error("TIMEOUT_HARD"));
-          }
-        }, hardTimeoutMs);
-
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            if (!settled) {
-              settled = true;
-              clearTimeout(timer);
-              resolve(pos);
-            }
-          },
-          (err) => {
-            if (!settled) {
-              settled = true;
-              clearTimeout(timer);
-              reject(err);
-            }
-          },
-          options
-        );
-      });
-    },
-    []
-  );
-
-  /**
-   * Request geolocation — iOS Safari compatible.
+   * Uses watchPosition instead of getCurrentPosition because:
+   * - On iOS Safari, getCurrentPosition can hang forever (known bug)
+   * - watchPosition fires repeatedly and is more reliable on iOS
+   * - The permission dialog time doesn't eat into any timeout
    *
-   * iOS Safari requirements:
-   * - MUST be called from a user gesture (tap/click handler)
-   * - getCurrentPosition can hang forever (no callback at all)
-   * - enableHighAccuracy: true triggers GPS cold start (30s+)
-   *
-   * Strategy:
-   * 1. Try low-accuracy first (WiFi/cell) with short timeout
-   * 2. If that works, refine in background with high accuracy
-   * 3. If low-accuracy hangs or fails, try high accuracy as fallback
-   * 4. If everything fails, show the help modal
+   * Flow:
+   * 1. Start watchPosition (low-accuracy first for speed)
+   * 2. As soon as the FIRST position arrives → fly to it
+   * 3. Keep watching for up to 5 more seconds for a better fix
+   * 4. Clear the watch and optionally start a refinement watch
+   * 5. Hard timeout of 30s catches the case where everything hangs
    */
   const requestLocation = useCallback(
-    async (showHelpOnDeny = false) => {
+    (showHelpOnDeny = false) => {
       if (!navigator.geolocation) return;
 
-      // Reset denied state — give the browser a fresh chance
       setLocationDenied(false);
+      setLocationLoading(true);
+
+      let gotPosition = false;
+      let bestAccuracy = Infinity;
 
       const applyPosition = (position: GeolocationPosition) => {
-        const { latitude, longitude } = position.coords;
+        const { latitude, longitude, accuracy } = position.coords;
         setUserLocation({ lat: latitude, lon: longitude });
         setLocationDenied(false);
+        setLocationLoading(false);
         locationGrantedRef.current = true;
-        setViewState({ latitude, longitude, zoom: 14 });
-        mapRef.current?.flyTo({
-          center: [longitude, latitude],
-          zoom: 14,
-          duration: 1500,
-        });
+
+        // Only fly to location on the first position fix
+        if (!gotPosition) {
+          gotPosition = true;
+          setViewState({ latitude, longitude, zoom: 14 });
+          mapRef.current?.flyTo({
+            center: [longitude, latitude],
+            zoom: 14,
+            duration: 1500,
+          });
+        }
+
+        // Always update if more accurate
+        if (accuracy < bestAccuracy) {
+          bestAccuracy = accuracy;
+          setUserLocation({ lat: latitude, lon: longitude });
+        }
       };
 
-      try {
-        // Phase 1: Quick low-accuracy (WiFi/cell, no maximumAge cache)
-        const pos = await geoGet(
-          { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 },
-          10000
-        );
-        applyPosition(pos);
-
-        // Phase 2: Refine with GPS in background (non-blocking)
-        geoGet(
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-          20000
-        )
-          .then((refined) => {
-            if (refined.coords.accuracy < pos.coords.accuracy) {
-              setUserLocation({
-                lat: refined.coords.latitude,
-                lon: refined.coords.longitude,
-              });
-            }
-          })
-          .catch(() => {}); // Already have a position, don't care
-      } catch (lowAccErr) {
-        // Low-accuracy failed or hung — try high accuracy
-        try {
-          const pos = await geoGet(
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-            20000
-          );
-          applyPosition(pos);
-        } catch (highAccErr) {
-          // Everything failed
-          const isDenied =
-            highAccErr instanceof GeolocationPositionError &&
-            highAccErr.code === highAccErr.PERMISSION_DENIED;
-          if (isDenied) {
-            setLocationDenied(true);
-          }
+      const onError = (error: GeolocationPositionError) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          cleanup();
+          setLocationDenied(true);
+          setLocationLoading(false);
           if (showHelpOnDeny) {
-            // Show help regardless of error type — user explicitly tapped
-            // the button and nothing worked. Help them fix it.
             setShowLocationHelp(true);
           }
         }
+        // TIMEOUT / POSITION_UNAVAILABLE: keep watching, don't give up
+      };
+
+      // Start watching with low-accuracy (fast on iOS — WiFi/cell)
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          applyPosition(position);
+        },
+        onError,
+        {
+          enableHighAccuracy: false,
+          timeout: 30000,    // Long timeout — permission dialog doesn't eat this on watchPosition
+          maximumAge: 10000, // Accept a recent cached position
+        }
+      );
+
+      // After getting the first fix, switch to high-accuracy for refinement
+      let highAccWatchId: number | null = null;
+      const startHighAccuracy = () => {
+        if (highAccWatchId !== null) return;
+        highAccWatchId = navigator.geolocation.watchPosition(
+          (position) => {
+            applyPosition(position);
+          },
+          () => {}, // Ignore errors on refinement
+          {
+            enableHighAccuracy: true,
+            timeout: 20000,
+            maximumAge: 0,
+          }
+        );
+      };
+
+      // Check periodically: once we have a position, start high-accuracy
+      const refinementTimer = setInterval(() => {
+        if (gotPosition) {
+          startHighAccuracy();
+          clearInterval(refinementTimer);
+          // Stop refinement after 10 seconds
+          setTimeout(() => {
+            if (highAccWatchId !== null) {
+              navigator.geolocation.clearWatch(highAccWatchId);
+              highAccWatchId = null;
+            }
+          }, 10000);
+        }
+      }, 500);
+
+      // Hard timeout: if nothing works in 30 seconds, show help
+      const hardTimeout = setTimeout(() => {
+        cleanup();
+        if (!gotPosition) {
+          setLocationLoading(false);
+          if (showHelpOnDeny) {
+            setShowLocationHelp(true);
+          }
+        }
+      }, 30000);
+
+      // Stop low-accuracy watch after 15 seconds (we should have a fix by then)
+      const lowAccTimeout = setTimeout(() => {
+        navigator.geolocation.clearWatch(watchId);
+      }, 15000);
+
+      function cleanup() {
+        navigator.geolocation.clearWatch(watchId);
+        if (highAccWatchId !== null) {
+          navigator.geolocation.clearWatch(highAccWatchId);
+        }
+        clearInterval(refinementTimer);
+        clearTimeout(hardTimeout);
+        clearTimeout(lowAccTimeout);
       }
     },
-    [geoGet]
+    []
   );
 
   // Detect mobile
@@ -560,14 +574,23 @@ export function WikiMap() {
               // will detect PERMISSION_DENIED and show the help modal
               requestLocation(true);
             }}
+            disabled={locationLoading}
             className={`w-11 h-11 rounded-xl shadow-lg flex items-center justify-center transition-colors ${
-              locationDenied
+              locationLoading
+                ? "bg-blue-50 text-blue-500"
+                : locationDenied
                 ? "bg-red-50 text-red-500 active:bg-red-100"
+                : userLocation
+                ? "bg-blue-50 text-blue-500 active:bg-blue-100"
                 : "bg-white text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50"
             }`}
             title="Mijn locatie"
           >
-            <LocateFixed className="w-5 h-5" />
+            {locationLoading ? (
+              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <LocateFixed className="w-5 h-5" />
+            )}
           </button>
         )}
 
@@ -608,7 +631,23 @@ export function WikiMap() {
             The built-in control can't integrate with our locationDenied state
             and the two-phase positioning strategy. */}
 
-        {/* User location marker during navigation */}
+        {/* User location blue dot — ALWAYS visible when we have a position */}
+        {!navigating && userLocation && (
+          <Marker
+            latitude={userLocation.lat}
+            longitude={userLocation.lon}
+            anchor="center"
+          >
+            <div className="relative flex items-center justify-center">
+              {/* Accuracy ring */}
+              <div className="absolute w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/20" />
+              {/* Blue dot */}
+              <div className="w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white shadow-lg" />
+            </div>
+          </Marker>
+        )}
+
+        {/* User location marker during navigation (with heading arrow) */}
         {navigating && navigationState && (
           <Marker
             latitude={navigationState.latitude}
