@@ -100,6 +100,15 @@ export function LocationHelp({ onClose }: { onClose: () => void }) {
                   .
                 </p>
               </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mt-1">
+                <p className="text-xs text-blue-800 leading-relaxed">
+                  <span className="font-semibold">💡 Tip:</span>{" "}
+                  Locatie werkt het betrouwbaarst in{" "}
+                  <span className="font-semibold">Google Chrome</span> op iOS.
+                  Probeer WikiWalk daar te openen als Safari niet meewerkt.
+                </p>
+              </div>
             </>
           ) : (
             <>
