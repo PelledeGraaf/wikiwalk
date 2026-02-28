@@ -30,14 +30,14 @@ export function ArticleCard({
         </div>
       )}
       <div className="space-y-2">
-        <h3 className="font-semibold text-gray-900 text-sm leading-tight">
+        <h3 className="font-semibold text-gray-900 dark:text-white text-sm leading-tight">
           {article.title}
         </h3>
         {article.description && (
-          <p className="text-xs text-gray-500 italic">{article.description}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 italic">{article.description}</p>
         )}
         {article.extract && (
-          <p className="text-xs text-gray-600 line-clamp-3">
+          <p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-3">
             {article.extract}
           </p>
         )}

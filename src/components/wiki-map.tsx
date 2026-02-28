@@ -31,11 +31,15 @@ import {
   Plus,
   Minus,
   ArrowUp,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { useNavigation } from "@/hooks/use-navigation";
 import { UserLocationMarker } from "./user-location-marker";
 import { WelcomeScreen, useShowWelcome } from "./welcome-screen";
 import { LocationHelp } from "./location-help";
+import { NearbyList } from "./nearby-list";
+import { useDarkMode } from "@/hooks/use-dark-mode";
 import {
   fetchWalkingRoute,
   formatDistance,
@@ -43,8 +47,10 @@ import {
   type RouteResult,
 } from "@/lib/routing";
 
-const MAP_STYLE =
+const MAP_STYLE_LIGHT =
   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const MAP_STYLE_DARK =
+  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 export function WikiMap() {
   const mapRef = useRef<MapRef>(null);
@@ -83,6 +89,14 @@ export function WikiMap() {
     title?: string;
   } | null>(null);
   const lastRouteUpdateRef = useRef<number>(0);
+  const { resolved: colorMode, toggle: toggleDarkMode } = useDarkMode();
+
+  // Register service worker for offline support
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
 
   /**
    * Detect iOS synchronously — NOT via useEffect/state.
@@ -487,9 +501,9 @@ export function WikiMap() {
       <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none safe-top">
         <div className="flex flex-wrap items-center gap-2 p-3 sm:p-4 sm:flex-nowrap sm:items-start sm:gap-3">
           {/* Logo */}
-          <div className="pointer-events-auto bg-white rounded-xl shadow-lg px-3 py-2 sm:px-4 sm:py-2.5 flex items-center gap-1.5">
+          <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-xl shadow-lg px-3 py-2 sm:px-4 sm:py-2.5 flex items-center gap-1.5">
             <Compass className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
-            <span className="font-bold text-base sm:text-lg tracking-tight text-gray-900">
+            <span className="font-bold text-base sm:text-lg tracking-tight text-gray-900 dark:text-white">
               Wiki<span className="text-emerald-600">Walk</span>
             </span>
           </div>
@@ -501,16 +515,35 @@ export function WikiMap() {
               href="https://buymeacoffee.com/pello"
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-white rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 text-amber-500 active:bg-amber-50 sm:hover:bg-amber-50 transition-colors"
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 text-amber-500 active:bg-amber-50 dark:active:bg-gray-700 sm:hover:bg-amber-50 dark:sm:hover:bg-gray-700 transition-colors"
               title="Support the developer"
             >
               <Coffee className="w-4 h-4" />
             </a>
 
+            {/* Dark mode toggle */}
+            <button
+              onClick={toggleDarkMode}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 text-gray-700 dark:text-gray-200 active:bg-gray-100 dark:active:bg-gray-700 sm:hover:bg-gray-50 dark:sm:hover:bg-gray-700 transition-colors"
+              title={colorMode === "dark" ? "Licht thema" : "Donker thema"}
+            >
+              {colorMode === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
+            {/* Nearby list */}
+            <NearbyList
+              articles={articles}
+              userLocation={userLocation}
+              onSelectArticle={(article) => {
+                flyToLocation(article.lat, article.lon);
+                setPanelArticle(article);
+              }}
+            />
+
             {/* Language toggle */}
             <button
               onClick={() => setLanguage(language === "nl" ? "en" : "nl")}
-              className="bg-white rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 text-sm font-medium text-gray-700 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 active:bg-gray-100 dark:active:bg-gray-700 sm:hover:bg-gray-50 dark:sm:hover:bg-gray-700 transition-colors"
             >
               {language === "nl" ? "🇳🇱" : "🇬🇧"}
             </button>
@@ -527,7 +560,7 @@ export function WikiMap() {
               className={`rounded-xl shadow-lg px-2.5 py-2 sm:px-3 sm:py-2.5 flex items-center gap-1.5 text-sm font-medium transition-colors ${
                 walkingMode
                   ? "bg-emerald-600 text-white active:bg-emerald-700"
-                  : "bg-white text-gray-700 active:bg-gray-100"
+                  : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 active:bg-gray-100 dark:active:bg-gray-700"
               }`}
             >
               <Footprints className="w-4 h-4" />
@@ -603,25 +636,25 @@ export function WikiMap() {
 
       {/* Initial loading screen */}
       {!initialLoadDone && (
-        <div className="fixed inset-0 z-40 bg-gradient-to-br from-emerald-50 to-white flex flex-col items-center justify-center gap-6">
+        <div className="fixed inset-0 z-40 bg-gradient-to-br from-emerald-50 to-white dark:from-gray-900 dark:to-gray-950 flex flex-col items-center justify-center gap-6">
           <div className="flex items-center gap-2.5">
             <Compass className="w-10 h-10 text-emerald-600 animate-spin" style={{ animationDuration: '3s' }} />
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
               Wiki<span className="text-emerald-600">Walk</span>
             </h1>
           </div>
           <div className="flex flex-col items-center gap-3">
-            <div className="w-48 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div className="w-48 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div className="h-full bg-emerald-500 rounded-full animate-pulse" style={{ width: '60%' }} />
             </div>
-            <p className="text-sm text-gray-500">Artikelen laden...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Artikelen laden...</p>
           </div>
         </div>
       )}
 
       {/* Small loading indicator for subsequent loads */}
       {isLoading && initialLoadDone && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur rounded-full px-4 py-2 shadow-lg text-sm text-gray-600 flex items-center gap-2">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 bg-white/90 dark:bg-gray-800/90 backdrop-blur rounded-full px-4 py-2 shadow-lg text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
           <div className="w-3 h-3 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
           Artikelen laden...
         </div>
@@ -636,12 +669,12 @@ export function WikiMap() {
 
       {/* Navigation info bar */}
       {navigating && navRoute && navDestination && (
-        <div className="absolute bottom-6 left-3 right-16 z-10 bg-white/95 backdrop-blur rounded-2xl shadow-lg px-4 py-3 flex items-center justify-between gap-3 safe-bottom">
+        <div className="absolute bottom-6 left-3 right-16 z-10 bg-white/95 dark:bg-gray-800/95 backdrop-blur rounded-2xl shadow-lg px-4 py-3 flex items-center justify-between gap-3 safe-bottom">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">
+            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
               {navDestination.title || "Bestemming"}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {formatDistance(navRoute.distance)} · {formatDuration(navRoute.duration)} lopen
             </p>
           </div>
@@ -711,7 +744,7 @@ export function WikiMap() {
                 duration: 400,
               });
             }}
-            className="w-11 h-11 rounded-xl shadow-lg bg-white flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+            className="w-11 h-11 rounded-xl shadow-lg bg-white dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-100 dark:active:bg-gray-700 sm:hover:bg-gray-50 dark:sm:hover:bg-gray-700 transition-colors"
             title="Noord"
           >
             <ArrowUp
@@ -726,7 +759,7 @@ export function WikiMap() {
           onClick={() => {
             mapRef.current?.getMap().zoomIn({ duration: 200 });
           }}
-          className="w-11 h-11 rounded-xl shadow-lg bg-white flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+          className="w-11 h-11 rounded-xl shadow-lg bg-white dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-100 dark:active:bg-gray-700 sm:hover:bg-gray-50 dark:sm:hover:bg-gray-700 transition-colors"
           title="Zoom in"
         >
           <Plus className="w-5 h-5" />
@@ -737,7 +770,7 @@ export function WikiMap() {
           onClick={() => {
             mapRef.current?.getMap().zoomOut({ duration: 200 });
           }}
-          className="w-11 h-11 rounded-xl shadow-lg bg-white flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+          className="w-11 h-11 rounded-xl shadow-lg bg-white dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-100 dark:active:bg-gray-700 sm:hover:bg-gray-50 dark:sm:hover:bg-gray-700 transition-colors"
           title="Zoom uit"
         >
           <Minus className="w-5 h-5" />
@@ -749,7 +782,7 @@ export function WikiMap() {
         ref={mapRef}
         initialViewState={DEFAULT_VIEW}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={MAP_STYLE}
+        mapStyle={colorMode === "dark" ? MAP_STYLE_DARK : MAP_STYLE_LIGHT}
         onMoveEnd={handleMoveEnd}
         onLoad={onMapMove}
         onClick={() => {

@@ -1,8 +1,15 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 html, body {
@@ -39,6 +46,15 @@ html, body {
   border: none !important;
   max-width: 340px !important;
   min-width: 300px !important;
+}
+
+.dark .maplibregl-popup-content {
+  background: #1f2937 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: #1f2937 !important;
 }
 
 .maplibregl-popup-close-button {

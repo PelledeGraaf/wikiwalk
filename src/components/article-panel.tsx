@@ -1,9 +1,10 @@
 "use client";
 
 import { WikiArticle } from "@/lib/wikipedia";
-import { X, ExternalLink, Plus, Check, MapPin, Navigation, Clock, Tag } from "lucide-react";
+import { X, ExternalLink, Plus, Check, MapPin, Navigation, Clock, Tag, Share2, ChevronLeft, ChevronRight } from "lucide-react";
 import { formatDistance, haversineDistance } from "@/lib/geo";
 import { useRef, useState, useCallback, useEffect } from "react";
+import { fetchArticleImages, type WikiImage } from "@/lib/wiki-images";
 
 interface ArticlePanelProps {
   article: WikiArticle;
@@ -30,6 +31,8 @@ export function ArticlePanel({
   const dragStartRef = useRef<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [images, setImages] = useState<WikiImage[]>([]);
+  const [imageIndex, setImageIndex] = useState(0);
 
   // Fetch categories for this article
   useEffect(() => {
@@ -61,6 +64,35 @@ export function ArticlePanel({
       })
       .catch(() => {});
   }, [article.pageid, language]);
+
+  // Fetch images for this article
+  useEffect(() => {
+    setImages([]);
+    setImageIndex(0);
+    fetchArticleImages(article.pageid, language)
+      .then(setImages)
+      .catch(() => {});
+  }, [article.pageid, language]);
+
+  // Share article
+  const handleShare = useCallback(async () => {
+    const shareData = {
+      title: article.title,
+      text: article.description || `Bekijk ${article.title} op WikiWalk!`,
+      url: article.url || `https://wikiwalk-one.vercel.app/?lat=${article.lat}&lon=${article.lon}&article=${article.pageid}`,
+    };
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch {
+        // User cancelled
+      }
+    } else {
+      // Fallback: copy to clipboard
+      await navigator.clipboard.writeText(shareData.url);
+      alert("Link gekopieerd!");
+    }
+  }, [article]);
 
   // Calculate distance from user
   const distanceText = userLocation
@@ -115,7 +147,7 @@ export function ArticlePanel({
 
       <div
         ref={panelRef}
-        className="fixed bottom-0 left-0 right-0 z-30 bg-white rounded-t-2xl shadow-2xl overflow-hidden max-h-[85dvh] flex flex-col safe-bottom
+        className="fixed bottom-0 left-0 right-0 z-30 bg-white dark:bg-gray-900 rounded-t-2xl shadow-2xl overflow-hidden max-h-[85dvh] flex flex-col safe-bottom
                    sm:absolute sm:top-0 sm:right-0 sm:bottom-0 sm:left-auto sm:w-96 sm:rounded-none sm:max-h-none"
         style={{
           transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
@@ -127,7 +159,7 @@ export function ArticlePanel({
       >
         {/* Drag handle — mobile only */}
         <div className="flex justify-center py-2 sm:hidden">
-          <div className="w-10 h-1 rounded-full bg-gray-300" />
+          <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-700" />
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -140,12 +172,20 @@ export function ArticlePanel({
                 className="w-full h-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-              <button
-                onClick={onClose}
-                className="absolute top-3 right-3 w-9 h-9 bg-black/40 backdrop-blur-sm text-white rounded-full flex items-center justify-center active:bg-black/60 sm:hover:bg-black/60 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="absolute top-3 right-3 flex gap-2">
+                <button
+                  onClick={handleShare}
+                  className="w-9 h-9 bg-black/40 backdrop-blur-sm text-white rounded-full flex items-center justify-center active:bg-black/60 sm:hover:bg-black/60 transition-colors"
+                >
+                  <Share2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={onClose}
+                  className="w-9 h-9 bg-black/40 backdrop-blur-sm text-white rounded-full flex items-center justify-center active:bg-black/60 sm:hover:bg-black/60 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
               <div className="absolute bottom-3 left-4 right-4">
                 <h2 className="text-xl font-bold text-white leading-tight">
                   {article.title}
@@ -155,29 +195,37 @@ export function ArticlePanel({
           )}
 
           {!article.thumbnail && (
-            <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="text-lg sm:text-xl font-bold text-gray-900 pr-2">{article.title}</h2>
-              <button
-                onClick={onClose}
-                className="w-9 h-9 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center flex-shrink-0 active:bg-gray-200 sm:hover:bg-gray-200 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+            <div className="flex items-center justify-between p-4 border-b dark:border-gray-800">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white pr-2">{article.title}</h2>
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  onClick={handleShare}
+                  className="w-9 h-9 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-full flex items-center justify-center"
+                >
+                  <Share2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={onClose}
+                  className="w-9 h-9 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-full flex items-center justify-center"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           )}
 
           <div className="p-4 space-y-4">
             {/* Description */}
             {article.description && (
-              <p className="text-sm text-emerald-700 font-medium bg-emerald-50 px-3 py-2 rounded-lg">
+              <p className="text-sm text-emerald-700 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded-lg">
                 {article.description}
               </p>
             )}
 
             {/* Distance + Coordinates row */}
-            <div className="flex items-center gap-4 text-xs text-gray-400">
+            <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
               {distanceText && (
-                <div className="flex items-center gap-1.5 text-blue-600 font-medium bg-blue-50 px-2.5 py-1.5 rounded-lg">
+                <div className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-medium bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1.5 rounded-lg">
                   <Navigation className="w-3 h-3" />
                   <span>{distanceText}</span>
                 </div>
@@ -190,9 +238,46 @@ export function ArticlePanel({
               </div>
             </div>
 
+            {/* Image gallery */}
+            {images.length > 0 && (
+              <div className="relative">
+                <div className="overflow-hidden rounded-xl">
+                  <img
+                    src={images[imageIndex].url}
+                    alt={images[imageIndex].title}
+                    className="w-full h-40 object-cover"
+                  />
+                </div>
+                {images.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => setImageIndex((i) => (i - 1 + images.length) % images.length)}
+                      className="absolute left-1 top-1/2 -translate-y-1/2 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setImageIndex((i) => (i + 1) % images.length)}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                      {images.map((_, i) => (
+                        <div
+                          key={i}
+                          className={`w-1.5 h-1.5 rounded-full ${i === imageIndex ? "bg-white" : "bg-white/50"}`}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Extract */}
             {article.extract && (
-              <p className="text-sm text-gray-700 leading-relaxed">
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                 {article.extract}
               </p>
             )}
@@ -200,7 +285,7 @@ export function ArticlePanel({
             {/* Categories */}
             {categories.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400">
                   <Tag className="w-3 h-3" />
                   <span>Categorieën</span>
                 </div>
@@ -208,7 +293,7 @@ export function ArticlePanel({
                   {categories.map((cat) => (
                     <span
                       key={cat}
-                      className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md"
+                      className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-1 rounded-md"
                     >
                       {cat}
                     </span>

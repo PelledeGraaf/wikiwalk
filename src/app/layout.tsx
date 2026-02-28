@@ -12,14 +12,19 @@ export const metadata: Metadata = {
   description:
     "Verken Wikipedia artikelen op een interactieve kaart. Ontdek gebouwen, monumenten, natuur en meer in je omgeving.",
   keywords: ["wikipedia", "kaart", "wandelen", "ontdekken", "geo", "monument"],
+  manifest: "/manifest.json",
   openGraph: {
     title: "WikiWalk - Ontdek Wikipedia op de kaart",
     description:
       "Verken Wikipedia artikelen op een interactieve kaart. Ontdek gebouwen, monumenten, natuur en meer in je omgeving.",
     type: "website",
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "WikiWalk",
+  },
   other: {
-    "apple-mobile-web-app-capable": "yes",
     "mobile-web-app-capable": "yes",
   },
 };
@@ -38,7 +43,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="nl">
+    <html lang="nl" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('wikiwalk-theme');var d=t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme:dark)').matches);if(d)document.documentElement.classList.add('dark')}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className={`${inter.className} antialiased`}>
         <Providers>{children}</Providers>
       </body>
