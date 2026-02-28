@@ -18,8 +18,46 @@ export async function fetchWalkingRoute(
   toLon: number,
   toLat: number
 ): Promise<RouteResult | null> {
+  // Try OSRM foot profile first
+  const osrmResult = await fetchOSRM(fromLon, fromLat, toLon, toLat);
+  if (osrmResult) return osrmResult;
+
+  // Fallback: straight line
+  return {
+    coordinates: [
+      [fromLon, fromLat],
+      [toLon, toLat],
+    ],
+    distance: haversine(fromLat, fromLon, toLat, toLon),
+    duration: haversine(fromLat, fromLon, toLat, toLon) / 1.4, // ~5 km/h walk
+  };
+}
+
+function haversine(
+  lat1: number, lon1: number, lat2: number, lon2: number
+): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function fetchOSRM(
+  fromLon: number,
+  fromLat: number,
+  toLon: number,
+  toLat: number
+): Promise<RouteResult | null> {
   try {
-    const url = `https://router.project-osrm.org/route/v1/foot/${fromLon},${fromLat};${toLon},${toLat}?overview=full&geometries=geojson`;
+    // Use the OSRM foot profile via the public demo server.
+    // Note: the demo only has car routing; use routing.openstreetmap.de
+    // which exposes foot/bicycle profiles.
+    const url = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${fromLon},${fromLat};${toLon},${toLat}?overview=full&geometries=geojson`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
