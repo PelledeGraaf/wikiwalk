@@ -81,79 +81,127 @@ export function WikiMap() {
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
   /**
-   * Request geolocation — iOS Safari compatible.
+   * Wrapper around getCurrentPosition that ALWAYS resolves or rejects.
    *
-   * Strategy:
-   * 1. First call uses enableHighAccuracy: FALSE → WiFi/cell, responds in <2s
-   * 2. If that succeeds, immediately fire a HIGH accuracy request to refine
-   * 3. This gives instant feedback + precise location moments later
+   * iOS Safari bug: getCurrentPosition can hang forever — neither the
+   * success nor error callback fires. This wrapper adds a hard timeout
+   * so the UI is never stuck.
+   */
+  const geoGet = useCallback(
+    (options: PositionOptions, hardTimeoutMs = 10000): Promise<GeolocationPosition> => {
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            reject(new Error("TIMEOUT_HARD"));
+          }
+        }, hardTimeoutMs);
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              resolve(pos);
+            }
+          },
+          (err) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              reject(err);
+            }
+          },
+          options
+        );
+      });
+    },
+    []
+  );
+
+  /**
+   * Request geolocation — iOS Safari compatible.
    *
    * iOS Safari requirements:
    * - MUST be called from a user gesture (tap/click handler)
-   * - Never call from useEffect/setTimeout (iOS silently blocks it)
-   * - enableHighAccuracy: true can take 30s+ on iOS (GPS cold start)
+   * - getCurrentPosition can hang forever (no callback at all)
+   * - enableHighAccuracy: true triggers GPS cold start (30s+)
+   *
+   * Strategy:
+   * 1. Try low-accuracy first (WiFi/cell) with short timeout
+   * 2. If that works, refine in background with high accuracy
+   * 3. If low-accuracy hangs or fails, try high accuracy as fallback
+   * 4. If everything fails, show the help modal
    */
-  const requestLocation = useCallback((showHelpOnDeny = false) => {
-    if (!navigator.geolocation) return;
+  const requestLocation = useCallback(
+    async (showHelpOnDeny = false) => {
+      if (!navigator.geolocation) return;
 
-    // Reset denied state — give the browser a fresh chance
-    setLocationDenied(false);
-
-    const onSuccess = (position: GeolocationPosition) => {
-      const { latitude, longitude } = position.coords;
-      setUserLocation({ lat: latitude, lon: longitude });
+      // Reset denied state — give the browser a fresh chance
       setLocationDenied(false);
-      locationGrantedRef.current = true;
-      setViewState({ latitude, longitude, zoom: 14 });
-      mapRef.current?.flyTo({
-        center: [longitude, latitude],
-        zoom: 14,
-        duration: 1500,
-      });
-    };
 
-    const onError = (error: GeolocationPositionError) => {
-      if (error.code === error.PERMISSION_DENIED) {
-        setLocationDenied(true);
-        if (showHelpOnDeny) {
-          setShowLocationHelp(true);
-        }
-      }
-      // TIMEOUT or POSITION_UNAVAILABLE: don't set denied, just silently fail
-    };
+      const applyPosition = (position: GeolocationPosition) => {
+        const { latitude, longitude } = position.coords;
+        setUserLocation({ lat: latitude, lon: longitude });
+        setLocationDenied(false);
+        locationGrantedRef.current = true;
+        setViewState({ latitude, longitude, zoom: 14 });
+        mapRef.current?.flyTo({
+          center: [longitude, latitude],
+          zoom: 14,
+          duration: 1500,
+        });
+      };
 
-    // Phase 1: Quick low-accuracy position (WiFi/cell — instant on iOS)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        onSuccess(position);
+      try {
+        // Phase 1: Quick low-accuracy (WiFi/cell, no maximumAge cache)
+        const pos = await geoGet(
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 },
+          10000
+        );
+        applyPosition(pos);
 
-        // Phase 2: Refine with high accuracy in background (GPS)
-        navigator.geolocation.getCurrentPosition(
-          (refined) => {
-            // Only update if significantly more accurate
-            if (refined.coords.accuracy < position.coords.accuracy) {
+        // Phase 2: Refine with GPS in background (non-blocking)
+        geoGet(
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+          20000
+        )
+          .then((refined) => {
+            if (refined.coords.accuracy < pos.coords.accuracy) {
               setUserLocation({
                 lat: refined.coords.latitude,
                 lon: refined.coords.longitude,
               });
             }
-          },
-          () => {}, // Silently ignore — we already have a position
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
-      },
-      (error) => {
-        // Low-accuracy failed — try high accuracy as fallback
-        // (some devices only support high accuracy)
-        navigator.geolocation.getCurrentPosition(
-          onSuccess,
-          onError,
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
-        );
-      },
-      { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
-    );
-  }, []);
+          })
+          .catch(() => {}); // Already have a position, don't care
+      } catch (lowAccErr) {
+        // Low-accuracy failed or hung — try high accuracy
+        try {
+          const pos = await geoGet(
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+            20000
+          );
+          applyPosition(pos);
+        } catch (highAccErr) {
+          // Everything failed
+          const isDenied =
+            highAccErr instanceof GeolocationPositionError &&
+            highAccErr.code === highAccErr.PERMISSION_DENIED;
+          if (isDenied) {
+            setLocationDenied(true);
+          }
+          if (showHelpOnDeny) {
+            // Show help regardless of error type — user explicitly tapped
+            // the button and nothing worked. Help them fix it.
+            setShowLocationHelp(true);
+          }
+        }
+      }
+    },
+    [geoGet]
+  );
 
   // Detect mobile
   useEffect(() => {
