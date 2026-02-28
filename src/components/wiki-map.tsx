@@ -266,8 +266,13 @@ export function WikiMap() {
   }, [locationRequested, requestLocation, welcomeOpen]);
 
   // Navigation mode: follow user position and rotate map to heading
+  const navStartedRef = useRef(false);
   useEffect(() => {
-    if (!navigating || !navigationState || !mapRef.current) return;
+    if (!navigating) {
+      navStartedRef.current = false;
+      return;
+    }
+    if (!navigationState || !mapRef.current) return;
 
     // Update user location for other components
     setUserLocation({
@@ -283,10 +288,15 @@ export function WikiMap() {
     const map = mapRef.current.getMap();
     const options: Record<string, unknown> = {
       center: [navigationState.longitude, navigationState.latitude],
-      zoom: 17,
       duration: 800,
       essential: true,
     };
+
+    // Only set zoom on first navigation update; afterwards let user zoom freely
+    if (!navStartedRef.current) {
+      navStartedRef.current = true;
+      options.zoom = 17;
+    }
 
     if (navigationState.heading !== null) {
       options.bearing = navigationState.heading;

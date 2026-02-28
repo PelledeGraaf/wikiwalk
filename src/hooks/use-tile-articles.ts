@@ -8,6 +8,7 @@ import {
   enrichArticle,
   clearCacheForLanguage,
   getCacheStats,
+  warmCacheFromDB,
   type Bounds,
 } from "@/lib/article-tile-cache";
 import type { WikiArticle } from "@/lib/wikipedia";
@@ -101,9 +102,15 @@ export function useTileArticles(
     debounceRef.current = setTimeout(loadArticles, 150);
   }, [loadArticles]);
 
-  // Load on mount / when dependencies change
+  // Warm IndexedDB cache on mount, then load articles
+  const cacheWarmed = useRef(false);
   useEffect(() => {
-    loadArticles();
+    if (!cacheWarmed.current) {
+      cacheWarmed.current = true;
+      warmCacheFromDB().then(() => loadArticles());
+    } else {
+      loadArticles();
+    }
   }, [loadArticles]);
 
   // Enrich a single article (fetch details)

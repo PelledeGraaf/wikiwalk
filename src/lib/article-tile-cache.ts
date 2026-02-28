@@ -223,8 +223,67 @@ const inflight = new Map<string, Promise<WikiArticle[]>>();
 /** Global article store — dedup by pageid+lang */
 const articleStore = new Map<string, WikiArticle>();
 
+/** Whether the warm-up has completed */
+let cacheWarmedUp = false;
+
 function articleKey(pageid: number, lang: string): string {
   return `${lang}:${pageid}`;
+}
+
+/**
+ * Warm the in-memory cache from IndexedDB in a SINGLE transaction.
+ *
+ * Safari is extremely slow when opening many individual transactions.
+ * This loads ALL persisted tiles at once (~1 transaction) so subsequent
+ * tile lookups hit the fast in-memory Map. Call once at startup.
+ */
+export async function warmCacheFromDB(): Promise<number> {
+  if (cacheWarmedUp) return tileCache.size;
+  try {
+    const db = await openDB();
+    const tx = db.transaction(TILE_STORE, "readonly");
+    const store = tx.objectStore(TILE_STORE);
+
+    return new Promise((resolve) => {
+      let loaded = 0;
+      const now = Date.now();
+      const req = store.openCursor();
+
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          // Done iterating
+          cacheWarmedUp = true;
+          resolve(loaded);
+          return;
+        }
+
+        const key = cursor.key as string;
+        const data = cursor.value as PersistedTile;
+
+        // Skip expired tiles
+        if (data && now - data.timestamp <= CACHE_MAX_AGE_MS) {
+          tileCache.set(key, data.articles);
+          // Extract lang from key "lang:row:col"
+          const lang = key.split(":")[0];
+          for (const article of data.articles) {
+            articleStore.set(articleKey(article.pageid, lang), article);
+          }
+          loaded++;
+        }
+
+        cursor.continue();
+      };
+
+      req.onerror = () => {
+        cacheWarmedUp = true;
+        resolve(loaded);
+      };
+    });
+  } catch {
+    cacheWarmedUp = true;
+    return 0;
+  }
 }
 
 /** Fetch a single tile's articles from Wikipedia */
