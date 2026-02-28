@@ -33,11 +33,12 @@ html, body {
 
 /* MapLibre popup overrides */
 .maplibregl-popup-content {
-  padding: 10px !important;
+  padding: 12px !important;
   border-radius: 12px !important;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15) !important;
   border: none !important;
-  max-width: 300px !important;
+  max-width: 340px !important;
+  min-width: 300px !important;
 }
 
 .maplibregl-popup-close-button {

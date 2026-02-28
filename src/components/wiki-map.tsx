@@ -225,6 +225,18 @@ export function WikiMap() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
+  // Close popup/panel on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedArticle(null);
+        setPanelArticle(null);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Show welcome screen
   useEffect(() => {
     if (showWelcome) setWelcomeOpen(true);
@@ -622,6 +634,11 @@ export function WikiMap() {
         mapStyle={MAP_STYLE}
         onMoveEnd={handleMoveEnd}
         onLoad={onMapMove}
+        onClick={() => {
+          // Close popup and panel when clicking the map background
+          setSelectedArticle(null);
+          setPanelArticle(null);
+        }}
         maxZoom={19}
         minZoom={3}
       >
@@ -672,18 +689,18 @@ export function WikiMap() {
 
           // Scale marker size based on zoom level
           const markerSize = viewState.zoom >= 14
-            ? "w-2.5 h-2.5 sm:w-2 sm:h-2"
+            ? "w-4 h-4 sm:w-3.5 sm:h-3.5"
             : viewState.zoom >= 10
-            ? "w-2 h-2 sm:w-1.5 sm:h-1.5"
-            : "w-1.5 h-1.5 sm:w-1 sm:h-1";
+            ? "w-3 h-3 sm:w-2.5 sm:h-2.5"
+            : "w-2.5 h-2.5 sm:w-2 sm:h-2";
 
           const markerSizeActive = viewState.zoom >= 14
-            ? "!w-3 !h-3 sm:!w-2.5 sm:!h-2.5"
+            ? "!w-5 !h-5 sm:!w-4 sm:!h-4"
             : viewState.zoom >= 10
-            ? "!w-2.5 !h-2.5 sm:!w-2 sm:!h-2"
-            : "!w-2 !h-2 sm:!w-1.5 sm:!h-1.5";
+            ? "!w-4 !h-4 sm:!w-3.5 sm:!h-3.5"
+            : "!w-3 !h-3 sm:!w-2.5 sm:!h-2.5";
 
-          const borderWidth = viewState.zoom >= 12 ? "border-2" : "border";
+          const borderWidth = "border-2";
 
           return (
             <Marker

@@ -19,7 +19,7 @@ export function ArticleCard({
   onToggleRoute,
 }: ArticleCardProps) {
   return (
-    <div className="w-64 p-0">
+    <div className="w-72 p-0">
       {article.thumbnail && (
         <div className="w-full h-32 overflow-hidden rounded-t-lg -mt-[15px] -mx-[10px] mb-2" style={{ width: "calc(100% + 20px)" }}>
           <img
