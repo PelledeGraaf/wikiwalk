@@ -42,7 +42,7 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof indexedDB === "undefined") {
       reject(new Error("IndexedDB not available"));
       return;
@@ -57,8 +57,19 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(ARTICLE_STORE);
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      // If the connection is unexpectedly closed (Safari does this),
+      // reset so the next call re-opens
+      db.onclose = () => { dbPromise = null; };
+      db.onversionchange = () => { db.close(); dbPromise = null; };
+      resolve(db);
+    };
+    req.onerror = () => {
+      // Reset so subsequent calls can retry
+      dbPromise = null;
+      reject(req.error);
+    };
   });
   return dbPromise;
 }
@@ -75,8 +86,15 @@ async function persistTile(key: string, articles: WikiArticle[]): Promise<void> 
     const store = tx.objectStore(TILE_STORE);
     const data: PersistedTile = { articles, timestamp: Date.now() };
     store.put(data, key);
+    // Wait for the transaction to actually commit
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
   } catch {
-    // Silently fail — persistence is best-effort
+    // Reset DB promise on write failure (connection may be stale)
+    dbPromise = null;
   }
 }
 
@@ -100,6 +118,8 @@ async function loadPersistedTile(key: string): Promise<WikiArticle[] | null> {
       req.onerror = () => resolve(null);
     });
   } catch {
+    // Reset DB on read failure (connection may be stale)
+    dbPromise = null;
     return null;
   }
 }
@@ -110,7 +130,14 @@ async function persistEnrichedArticle(key: string, article: WikiArticle): Promis
     const tx = db.transaction(ARTICLE_STORE, "readwrite");
     const store = tx.objectStore(ARTICLE_STORE);
     store.put({ ...article, _ts: Date.now() }, key);
-  } catch {}
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } catch {
+    dbPromise = null;
+  }
 }
 
 async function loadPersistedArticle(key: string): Promise<WikiArticle | null> {
@@ -132,6 +159,7 @@ async function loadPersistedArticle(key: string): Promise<WikiArticle | null> {
       req.onerror = () => resolve(null);
     });
   } catch {
+    dbPromise = null;
     return null;
   }
 }

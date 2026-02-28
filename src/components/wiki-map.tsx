@@ -66,16 +66,19 @@ export function WikiMap() {
   const lastCameraUpdateRef = useRef<number>(0);
   const [viewedArticles, setViewedArticles] = useState<Set<number>>(new Set());
   const [initialLoadDone, setInitialLoadDone] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
   const locationGrantedRef = useRef(false);
 
-  // Detect iOS
-  useEffect(() => {
-    const ios =
-      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    setIsIOS(ios);
-  }, []);
+  /**
+   * Detect iOS synchronously — NOT via useEffect/state.
+   * Using state would cause a race condition: the auto-request
+   * effect fires before the iOS detection effect updates state,
+   * so it sees isIOS=false and calls geolocation from useEffect
+   * (not a user gesture), which iOS Safari silently blocks.
+   */
+  const isIOS =
+    typeof navigator !== "undefined" &&
+    (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
   /**
    * Request geolocation — iOS Safari compatible.
@@ -170,14 +173,23 @@ export function WikiMap() {
   useEffect(() => {
     if (locationRequested) return;
     if (welcomeOpen) return;
-    if (isIOS) {
+
+    // iOS Safari: MUST be called from a user gesture (tap/click).
+    // Calling from useEffect is silently blocked. Check inline
+    // (not from state) to avoid the race condition.
+    const isiOS =
+      typeof navigator !== "undefined" &&
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+    if (isiOS) {
       // On iOS, never auto-request — wait for user to tap locate button
       setLocationRequested(true);
       return;
     }
     setLocationRequested(true);
     requestLocation();
-  }, [locationRequested, requestLocation, welcomeOpen, isIOS]);
+  }, [locationRequested, requestLocation, welcomeOpen]);
 
   // Navigation mode: follow user position and rotate map to heading
   useEffect(() => {
