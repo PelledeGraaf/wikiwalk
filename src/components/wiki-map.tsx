@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Map, {
   Marker,
   Popup,
-  NavigationControl,
   Source,
   Layer,
   type MapRef,
@@ -29,6 +28,9 @@ import {
   Compass,
   Coffee,
   LocateFixed,
+  Plus,
+  Minus,
+  ArrowUp,
 } from "lucide-react";
 import { useNavigation } from "@/hooks/use-navigation";
 import { UserLocationMarker } from "./user-location-marker";
@@ -339,6 +341,7 @@ export function WikiMap() {
         latitude: e.viewState.latitude,
         longitude: e.viewState.longitude,
         zoom: e.viewState.zoom,
+        bearing: e.viewState.bearing,
       });
       onMapMove();
     },
@@ -586,14 +589,12 @@ export function WikiMap() {
         </div>
       )}
 
-      {/* Floating tracking button — always visible */}
-      <div className="absolute bottom-28 right-3 z-10 flex flex-col gap-2 safe-bottom">
+      {/* Floating control buttons — right side */}
+      <div className="absolute bottom-6 right-3 z-10 flex flex-col gap-2 safe-bottom">
         {/* Locate me */}
         {!navigating && (
           <button
             onClick={() => {
-              // Always try requesting — if truly denied, requestLocation
-              // will detect PERMISSION_DENIED and show the help modal
               requestLocation(true);
             }}
             disabled={locationLoading}
@@ -616,7 +617,7 @@ export function WikiMap() {
           </button>
         )}
 
-        {/* Track mode (Google Maps-like) */}
+        {/* Track mode — mobile only */}
         <button
           onClick={() => {
             if (navigating) {
@@ -625,14 +626,56 @@ export function WikiMap() {
               startNavigation();
             }
           }}
-          className={`w-11 h-11 rounded-xl shadow-lg flex items-center justify-center transition-colors ${
+          className={`sm:hidden w-11 h-11 rounded-xl shadow-lg flex items-center justify-center transition-colors ${
             navigating
               ? "bg-blue-500 text-white active:bg-blue-600"
-              : "bg-white text-blue-500 active:bg-blue-50 sm:hover:bg-blue-50"
+              : "bg-white text-blue-500 active:bg-blue-50"
           }`}
           title={navigating ? "Stop tracking" : "Volg mijn locatie"}
         >
           <Navigation className={`w-5 h-5 ${navigating ? "animate-pulse" : ""}`} />
+        </button>
+
+        {/* North reset — visible when map is rotated */}
+        {Math.abs(viewState.bearing ?? 0) > 1 && (
+          <button
+            onClick={() => {
+              mapRef.current?.getMap().easeTo({
+                bearing: 0,
+                pitch: 0,
+                duration: 400,
+              });
+            }}
+            className="w-11 h-11 rounded-xl shadow-lg bg-white flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+            title="Noord"
+          >
+            <ArrowUp
+              className="w-5 h-5 text-red-500 transition-transform"
+              style={{ transform: `rotate(${-(viewState.bearing ?? 0)}deg)` }}
+            />
+          </button>
+        )}
+
+        {/* Zoom in */}
+        <button
+          onClick={() => {
+            mapRef.current?.getMap().zoomIn({ duration: 200 });
+          }}
+          className="w-11 h-11 rounded-xl shadow-lg bg-white flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+          title="Zoom in"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+
+        {/* Zoom out */}
+        <button
+          onClick={() => {
+            mapRef.current?.getMap().zoomOut({ duration: 200 });
+          }}
+          className="w-11 h-11 rounded-xl shadow-lg bg-white flex items-center justify-center text-gray-600 active:bg-gray-100 sm:hover:bg-gray-50 transition-colors"
+          title="Zoom uit"
+        >
+          <Minus className="w-5 h-5" />
         </button>
       </div>
 
@@ -652,11 +695,8 @@ export function WikiMap() {
         maxZoom={19}
         minZoom={3}
       >
-        <NavigationControl position="bottom-right" />
-        {/* Note: MapLibre's GeolocateControl removed — we use our own locate
-            button that handles iOS Safari's user-gesture requirement properly.
-            The built-in control can't integrate with our locationDenied state
-            and the two-phase positioning strategy. */}
+        {/* Note: MapLibre's built-in controls removed — we use custom buttons
+            above the map for consistent positioning and iOS Safari compat. */}
 
         {/* User location blue dot — ALWAYS visible when we have a position */}
         {!navigating && userLocation && (
