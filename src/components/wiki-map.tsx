@@ -36,6 +36,12 @@ import { useNavigation } from "@/hooks/use-navigation";
 import { UserLocationMarker } from "./user-location-marker";
 import { WelcomeScreen, useShowWelcome } from "./welcome-screen";
 import { LocationHelp } from "./location-help";
+import {
+  fetchWalkingRoute,
+  formatDistance,
+  formatDuration,
+  type RouteResult,
+} from "@/lib/routing";
 
 const MAP_STYLE =
   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
@@ -70,6 +76,13 @@ export function WikiMap() {
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const locationGrantedRef = useRef(false);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [navRoute, setNavRoute] = useState<RouteResult | null>(null);
+  const [navDestination, setNavDestination] = useState<{
+    lat: number;
+    lon: number;
+    title?: string;
+  } | null>(null);
+  const lastRouteUpdateRef = useRef<number>(0);
 
   /**
    * Detect iOS synchronously — NOT via useEffect/state.
@@ -319,6 +332,8 @@ export function WikiMap() {
 
   const stopNavigation = useCallback(() => {
     setNavigating(false);
+    setNavRoute(null);
+    setNavDestination(null);
     // Reset pitch and bearing
     mapRef.current?.getMap().easeTo({
       pitch: 0,
@@ -326,6 +341,23 @@ export function WikiMap() {
       duration: 500,
     });
   }, []);
+
+  // Update walking route as user moves (every 15 seconds)
+  useEffect(() => {
+    if (!navigating || !navDestination || !navigationState) return;
+    const now = Date.now();
+    if (now - lastRouteUpdateRef.current < 15000) return;
+    lastRouteUpdateRef.current = now;
+
+    fetchWalkingRoute(
+      navigationState.longitude,
+      navigationState.latitude,
+      navDestination.lon,
+      navDestination.lat
+    ).then((route) => {
+      if (route) setNavRoute(route);
+    });
+  }, [navigating, navDestination, navigationState]);
 
   // Tile-based article loading with caching and pre-loading
   const {
@@ -550,8 +582,21 @@ export function WikiMap() {
           onClose={() => setPanelArticle(null)}
           onToggleRoute={() => toggleWalkingArticle(panelArticle)}
           onNavigate={(lat, lon) => {
-            flyToLocation(lat, lon, 17);
+            // Start navigation with walking route
             setNavigating(true);
+            setNavDestination({ lat, lon, title: panelArticle?.title });
+            // Fetch walking route from current location
+            if (userLocation) {
+              fetchWalkingRoute(
+                userLocation.lon,
+                userLocation.lat,
+                lon,
+                lat
+              ).then((route) => {
+                if (route) setNavRoute(route);
+              });
+            }
+            // Don't fly to destination — we follow the user
           }}
         />
       )}
@@ -586,6 +631,26 @@ export function WikiMap() {
       {viewState.zoom < 3 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur rounded-full px-4 py-2 shadow-lg text-sm text-gray-600">
           Zoom in om Wikipedia artikelen te zien
+        </div>
+      )}
+
+      {/* Navigation info bar */}
+      {navigating && navRoute && navDestination && (
+        <div className="absolute bottom-6 left-3 right-16 z-10 bg-white/95 backdrop-blur rounded-2xl shadow-lg px-4 py-3 flex items-center justify-between gap-3 safe-bottom">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-900 truncate">
+              {navDestination.title || "Bestemming"}
+            </p>
+            <p className="text-xs text-gray-500">
+              {formatDistance(navRoute.distance)} · {formatDuration(navRoute.duration)} lopen
+            </p>
+          </div>
+          <button
+            onClick={stopNavigation}
+            className="flex-shrink-0 bg-red-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium active:bg-red-600"
+          >
+            Stop
+          </button>
         </div>
       )}
 
@@ -805,6 +870,48 @@ export function WikiMap() {
               }}
             />
           </Source>
+        )}
+
+        {/* Navigation walking route (OSRM) */}
+        {navRoute && (
+          <Source
+            id="nav-route"
+            type="geojson"
+            data={{
+              type: "Feature" as const,
+              properties: {},
+              geometry: {
+                type: "LineString" as const,
+                coordinates: navRoute.coordinates,
+              },
+            }}
+          >
+            <Layer
+              id="nav-route-line"
+              type="line"
+              paint={{
+                "line-color": "#3b82f6",
+                "line-width": 5,
+                "line-opacity": 0.8,
+              }}
+            />
+          </Source>
+        )}
+
+        {/* Navigation destination marker */}
+        {navigating && navDestination && (
+          <Marker
+            latitude={navDestination.lat}
+            longitude={navDestination.lon}
+            anchor="bottom"
+          >
+            <div className="flex flex-col items-center">
+              <div className="bg-blue-500 text-white px-2 py-1 rounded-lg text-xs font-medium shadow-lg mb-1 whitespace-nowrap max-w-[150px] truncate">
+                {navDestination.title || "Bestemming"}
+              </div>
+              <MapPin className="w-8 h-8 text-blue-500 drop-shadow-lg" />
+            </div>
+          </Marker>
         )}
 
         {/* Walking route markers with numbers */}
