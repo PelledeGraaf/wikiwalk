@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Map, {
   Marker,
   Popup,
@@ -56,9 +56,6 @@ export function WikiMap() {
   const mapRef = useRef<MapRef>(null);
   const [viewState, setViewState] = useState<MapViewState>(DEFAULT_VIEW);
   const [selectedArticle, setSelectedArticle] = useState<WikiArticle | null>(
-    null
-  );
-  const [hoveredArticle, setHoveredArticle] = useState<WikiArticle | null>(
     null
   );
   const [walkingMode, setWalkingMode] = useState(false);
@@ -477,6 +474,83 @@ export function WikiMap() {
       },
     };
 
+  // Build GeoJSON FeatureCollection for clustered rendering
+  const articlesGeoJson = useMemo<GeoJSON.FeatureCollection>(() => ({
+    type: "FeatureCollection",
+    features: articles.map((a) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [a.lon, a.lat] },
+      properties: {
+        pageid: a.pageid,
+        title: a.title,
+        isViewed: viewedArticles.has(a.pageid) ? 1 : 0,
+        isInRoute: walkingArticles.some((w) => w.pageid === a.pageid) ? 1 : 0,
+      },
+    })),
+  }), [articles, viewedArticles, walkingArticles]);
+
+  // Handle clicks on cluster and point layers
+  const handleMapClick = useCallback(
+    (e: maplibregl.MapMouseEvent) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+
+      // Check unclustered points first
+      const pointFeatures = map.queryRenderedFeatures(e.point, {
+        layers: ["unclustered-point"],
+      });
+      if (pointFeatures.length > 0) {
+        const feat = pointFeatures[0];
+        const pageid = feat.properties?.pageid;
+        const article = articles.find((a) => a.pageid === pageid);
+        if (article) {
+          e.originalEvent.stopPropagation();
+          handleMarkerClick(article);
+          return;
+        }
+      }
+
+      // Check clusters — zoom into them
+      const clusterFeatures = map.queryRenderedFeatures(e.point, {
+        layers: ["clusters"],
+      });
+      if (clusterFeatures.length > 0) {
+        e.originalEvent.stopPropagation();
+        const clusterId = clusterFeatures[0].properties?.cluster_id;
+        const source = map.getSource("articles") as maplibregl.GeoJSONSource;
+        if (source && clusterId !== undefined) {
+          source.getClusterExpansionZoom(clusterId).then((zoom) => {
+            const coords = (clusterFeatures[0].geometry as GeoJSON.Point).coordinates;
+            map.easeTo({
+              center: [coords[0], coords[1]] as [number, number],
+              zoom: zoom + 0.5,
+              duration: 500,
+            });
+          });
+        }
+        return;
+      }
+
+      // Clicked map background — close popups/panels
+      setSelectedArticle(null);
+      setPanelArticle(null);
+    },
+    [articles, handleMarkerClick]
+  );
+
+  // Change cursor on hover over points/clusters
+  const handleMouseMove = useCallback(
+    (e: maplibregl.MapMouseEvent) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: ["unclustered-point", "clusters"],
+      });
+      map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
+    },
+    []
+  );
+
   return (
     <div className="relative w-full h-screen">
       {/* Welcome screen */}
@@ -785,11 +859,8 @@ export function WikiMap() {
         mapStyle={colorMode === "dark" ? MAP_STYLE_DARK : MAP_STYLE_LIGHT}
         onMoveEnd={handleMoveEnd}
         onLoad={onMapMove}
-        onClick={() => {
-          // Close popup and panel when clicking the map background
-          setSelectedArticle(null);
-          setPanelArticle(null);
-        }}
+        onClick={handleMapClick}
+        onMouseMove={handleMouseMove}
         maxZoom={19}
         minZoom={3}
       >
@@ -826,65 +897,73 @@ export function WikiMap() {
           </Marker>
         )}
 
-        {/* Article markers */}
-        {articles.map((article) => {
-          const isSelected = selectedArticle?.pageid === article.pageid;
-          const isInRoute = walkingArticles.some(
-            (a) => a.pageid === article.pageid
-          );
-          const isHovered = hoveredArticle?.pageid === article.pageid;
-          const isViewed = viewedArticles.has(article.pageid);
-
-          // Scale marker size based on zoom level
-          const markerSize = viewState.zoom >= 14
-            ? "w-4 h-4 sm:w-3.5 sm:h-3.5"
-            : viewState.zoom >= 10
-            ? "w-3 h-3 sm:w-2.5 sm:h-2.5"
-            : "w-2.5 h-2.5 sm:w-2 sm:h-2";
-
-          const markerSizeActive = viewState.zoom >= 14
-            ? "!w-5 !h-5 sm:!w-4 sm:!h-4"
-            : viewState.zoom >= 10
-            ? "!w-4 !h-4 sm:!w-3.5 sm:!h-3.5"
-            : "!w-3 !h-3 sm:!w-2.5 sm:!h-2.5";
-
-          const borderWidth = "border-2";
-
-          return (
-            <Marker
-              key={article.pageid}
-              latitude={article.lat}
-              longitude={article.lon}
-              anchor="center"
-              onClick={(e) => {
-                e.originalEvent.stopPropagation();
-                handleMarkerClick(article);
-              }}
-            >
-              <div
-                className={`transition-all duration-200 cursor-pointer ${
-                  isHovered || isSelected ? "scale-125" : "scale-100"
-                }`}
-                onMouseEnter={() => setHoveredArticle(article)}
-                onMouseLeave={() => setHoveredArticle(null)}
-              >
-                {/* Invisible touch target for mobile */}
-                <div className="absolute -inset-2 sm:hidden" />
-                <div
-                  className={`${markerSize} rounded-full ${borderWidth} shadow-md ${
-                    isInRoute
-                      ? `bg-orange-500 border-orange-300 ${markerSizeActive}`
-                      : isSelected
-                      ? `bg-emerald-600 border-emerald-300 ${markerSizeActive}`
-                      : isViewed
-                      ? "bg-gray-400 border-gray-200"
-                      : "bg-emerald-500 border-white"
-                  }`}
-                />
-              </div>
-            </Marker>
-          );
-        })}
+        {/* Article markers — clustered via WebGL layers */}
+        <Source
+          id="articles"
+          type="geojson"
+          data={articlesGeoJson}
+          cluster={true}
+          clusterMaxZoom={14}
+          clusterRadius={50}
+        >
+          {/* Cluster circles */}
+          <Layer
+            id="clusters"
+            type="circle"
+            filter={["has", "point_count"]}
+            paint={{
+              "circle-color": "#059669",
+              "circle-radius": [
+                "step",
+                ["get", "point_count"],
+                16, 10, 20, 50, 26, 200, 32,
+              ],
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#ffffff",
+              "circle-opacity": 0.9,
+            }}
+          />
+          {/* Cluster count labels */}
+          <Layer
+            id="cluster-count"
+            type="symbol"
+            filter={["has", "point_count"]}
+            layout={{
+              "text-field": "{point_count_abbreviated}",
+              "text-size": 12,
+            }}
+            paint={{
+              "text-color": "#ffffff",
+            }}
+          />
+          {/* Unclustered individual points */}
+          <Layer
+            id="unclustered-point"
+            type="circle"
+            filter={["!", ["has", "point_count"]]}
+            paint={{
+              "circle-color": [
+                "case",
+                ["==", ["get", "isInRoute"], 1], "#f97316",
+                ["==", ["get", "isViewed"], 1], "#9ca3af",
+                "#10b981",
+              ],
+              "circle-radius": [
+                "interpolate", ["linear"], ["zoom"],
+                5, 3,
+                10, 4,
+                14, 6,
+                18, 8,
+              ],
+              "circle-stroke-width": 2,
+              "circle-stroke-color": [
+                "case",
+                ["==", ["get", "isInRoute"], 1], "#fed7aa",
+                "#ffffff",
+              ],
+            }}
+          />
+        </Source>
 
         {/* Walking route line */}
         {routeGeoJson && (
