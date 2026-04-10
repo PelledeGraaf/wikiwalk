@@ -489,44 +489,25 @@ export function WikiMap() {
     })),
   }), [articles, viewedArticles, walkingArticles]);
 
-  // Handle clicks on cluster and point layers via native MapLibre events
-  const articlesRef = useRef(articles);
-  articlesRef.current = articles;
-  const handleMarkerClickRef = useRef(handleMarkerClick);
-  handleMarkerClickRef.current = handleMarkerClick;
-
-  useEffect(() => {
-    const map = mapRef.current?.getMap();
-    if (!map) return;
-
-    const onClick = (e: maplibregl.MapMouseEvent) => {
-      // Skip if layers don't exist yet
-      if (!map.getLayer("unclustered-point")) return;
-
-      const pointFeatures = map.queryRenderedFeatures(e.point, {
-        layers: ["unclustered-point"],
-      });
-      if (pointFeatures.length > 0) {
-        const feat = pointFeatures[0];
-        const pageid = Number(feat.properties?.pageid);
-        const article = articlesRef.current.find((a) => a.pageid === pageid);
-        if (article) {
-          handleMarkerClickRef.current(article);
-          return;
-        }
+  // Handle clicks on map: points, clusters, or background
+  const handleMapClick = useCallback(
+    (e: { features?: maplibregl.MapGeoJSONFeature[]; lngLat: { lng: number; lat: number } }) => {
+      const feat = e.features?.[0];
+      if (!feat) {
+        // Clicked background
+        setSelectedArticle(null);
+        setPanelArticle(null);
+        return;
       }
 
-      if (!map.getLayer("clusters")) return;
-      const clusterFeatures = map.queryRenderedFeatures(e.point, {
-        layers: ["clusters"],
-      });
-      if (clusterFeatures.length > 0) {
-        const clusterId = clusterFeatures[0].properties?.cluster_id;
-        const source = map.getSource("articles") as maplibregl.GeoJSONSource;
-        if (source && clusterId !== undefined) {
-          source.getClusterExpansionZoom(clusterId).then((zoom) => {
-            const coords = (clusterFeatures[0].geometry as GeoJSON.Point).coordinates;
-            map.easeTo({
+      // Cluster click — zoom in
+      if (feat.properties?.cluster_id !== undefined) {
+        const map = mapRef.current?.getMap();
+        const source = map?.getSource("articles") as maplibregl.GeoJSONSource | undefined;
+        if (source) {
+          source.getClusterExpansionZoom(feat.properties.cluster_id).then((zoom) => {
+            const coords = (feat.geometry as GeoJSON.Point).coordinates;
+            map!.easeTo({
               center: [coords[0], coords[1]] as [number, number],
               zoom: zoom + 0.5,
               duration: 500,
@@ -536,36 +517,24 @@ export function WikiMap() {
         return;
       }
 
-      // Clicked map background
-      setSelectedArticle(null);
-      setPanelArticle(null);
-    };
+      // Unclustered point click
+      const pageid = Number(feat.properties?.pageid);
+      const article = articles.find((a) => a.pageid === pageid);
+      if (article) {
+        handleMarkerClick(article);
+      }
+    },
+    [articles, handleMarkerClick]
+  );
 
-    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
-      if (!map.getLayer("unclustered-point") || !map.getLayer("clusters")) return;
-      const features = map.queryRenderedFeatures(e.point, {
-        layers: ["unclustered-point", "clusters"],
-      });
-      map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
-    };
-
-    // Attach after map is idle to ensure layers exist
-    const attach = () => {
-      map.on("click", onClick);
-      map.on("mousemove", onMouseMove);
-    };
-
-    if (map.isStyleLoaded()) {
-      attach();
-    } else {
-      map.once("idle", attach);
-    }
-
-    return () => {
-      map.off("click", onClick);
-      map.off("mousemove", onMouseMove);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Cursor style for interactive layers
+  const onMouseEnter = useCallback(() => {
+    const canvas = mapRef.current?.getMap()?.getCanvas();
+    if (canvas) canvas.style.cursor = "pointer";
+  }, []);
+  const onMouseLeave = useCallback(() => {
+    const canvas = mapRef.current?.getMap()?.getCanvas();
+    if (canvas) canvas.style.cursor = "";
   }, []);
 
   return (
@@ -876,6 +845,10 @@ export function WikiMap() {
         mapStyle={colorMode === "dark" ? MAP_STYLE_DARK : MAP_STYLE_LIGHT}
         onMoveEnd={handleMoveEnd}
         onLoad={onMapMove}
+        onClick={handleMapClick}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        interactiveLayerIds={["unclustered-point", "clusters"]}
         maxZoom={19}
         minZoom={3}
       >
