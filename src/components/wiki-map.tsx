@@ -489,33 +489,38 @@ export function WikiMap() {
     })),
   }), [articles, viewedArticles, walkingArticles]);
 
-  // Handle clicks on cluster and point layers
-  const handleMapClick = useCallback(
-    (e: maplibregl.MapMouseEvent) => {
-      const map = mapRef.current?.getMap();
-      if (!map) return;
+  // Handle clicks on cluster and point layers via native MapLibre events
+  const articlesRef = useRef(articles);
+  articlesRef.current = articles;
+  const handleMarkerClickRef = useRef(handleMarkerClick);
+  handleMarkerClickRef.current = handleMarkerClick;
 
-      // Check unclustered points first
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      // Skip if layers don't exist yet
+      if (!map.getLayer("unclustered-point")) return;
+
       const pointFeatures = map.queryRenderedFeatures(e.point, {
         layers: ["unclustered-point"],
       });
       if (pointFeatures.length > 0) {
         const feat = pointFeatures[0];
         const pageid = Number(feat.properties?.pageid);
-        const article = articles.find((a) => a.pageid === pageid);
+        const article = articlesRef.current.find((a) => a.pageid === pageid);
         if (article) {
-          e.originalEvent.stopPropagation();
-          handleMarkerClick(article);
+          handleMarkerClickRef.current(article);
           return;
         }
       }
 
-      // Check clusters — zoom into them
+      if (!map.getLayer("clusters")) return;
       const clusterFeatures = map.queryRenderedFeatures(e.point, {
         layers: ["clusters"],
       });
       if (clusterFeatures.length > 0) {
-        e.originalEvent.stopPropagation();
         const clusterId = clusterFeatures[0].properties?.cluster_id;
         const source = map.getSource("articles") as maplibregl.GeoJSONSource;
         if (source && clusterId !== undefined) {
@@ -531,25 +536,37 @@ export function WikiMap() {
         return;
       }
 
-      // Clicked map background — close popups/panels
+      // Clicked map background
       setSelectedArticle(null);
       setPanelArticle(null);
-    },
-    [articles, handleMarkerClick]
-  );
+    };
 
-  // Change cursor on hover over points/clusters
-  const handleMouseMove = useCallback(
-    (e: maplibregl.MapMouseEvent) => {
-      const map = mapRef.current?.getMap();
-      if (!map) return;
+    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
+      if (!map.getLayer("unclustered-point") || !map.getLayer("clusters")) return;
       const features = map.queryRenderedFeatures(e.point, {
         layers: ["unclustered-point", "clusters"],
       });
       map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
-    },
-    []
-  );
+    };
+
+    // Attach after map is idle to ensure layers exist
+    const attach = () => {
+      map.on("click", onClick);
+      map.on("mousemove", onMouseMove);
+    };
+
+    if (map.isStyleLoaded()) {
+      attach();
+    } else {
+      map.once("idle", attach);
+    }
+
+    return () => {
+      map.off("click", onClick);
+      map.off("mousemove", onMouseMove);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="relative w-full h-screen">
@@ -859,8 +876,6 @@ export function WikiMap() {
         mapStyle={colorMode === "dark" ? MAP_STYLE_DARK : MAP_STYLE_LIGHT}
         onMoveEnd={handleMoveEnd}
         onLoad={onMapMove}
-        onClick={handleMapClick}
-        onMouseMove={handleMouseMove}
         maxZoom={19}
         minZoom={3}
       >
