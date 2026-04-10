@@ -501,7 +501,7 @@ export function WikiMap() {
       });
       if (pointFeatures.length > 0) {
         const feat = pointFeatures[0];
-        const pageid = feat.properties?.pageid;
+        const pageid = Number(feat.properties?.pageid);
         const article = articles.find((a) => a.pageid === pageid);
         if (article) {
           e.originalEvent.stopPropagation();
